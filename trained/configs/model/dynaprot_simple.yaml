@@ -1,0 +1,21 @@
+# dynaprot_simple.yaml
+
+
+# Model training and testing settings
+train_params:
+  batch_size: 32
+  epochs: 50
+  learning_rate: 0.001
+
+model_params:
+  num_ipa_blocks: 8
+  d_model: 128
+  learning_rate: 1e-4
+
+
+# Output paths for model artifacts and logs
+
+model_checkpoints: "${repo_dir}/trained/checkpoints"
+logs: "/path/to/logs"
+results: "/path/to/results"
+ 
