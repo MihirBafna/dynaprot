@@ -1,17 +1,31 @@
 # dynaprot_simple.yaml
 
-
 # Model training and testing settings
-train_params:
-  batch_size: 32
-  epochs: 50
-  learning_rate: 0.001
-
 model_params:
   num_ipa_blocks: 8
   d_model: 128
-  learning_rate: 1e-4
 
+train_params:
+  precision: 32
+  batch_size: 20
+  epochs: 50
+  learning_rate: 0.001
+  accelerator: "gpu"
+  num_devices: 2
+  num_nodes: 1
+  project: "openprot/dynamics"
+  neptune_api_key: "INSERT YOUR API TOKEN HERE"
+  tags: ["dynaprot", "debugging"]
+  log_model_checkpoints: True
+
+eval_params:    
+  loss_weights:  # hyperaparameters for loss functions per dynamics readout, if null then loss is not used in training
+    resi_gaussians:
+      mse_means: 1.0
+      kldiv: 1.0
+    resi_rmsf: null
+    resi_rmsd: null
+    resi_rg: null
 
 # Output paths for model artifacts and logs
 
