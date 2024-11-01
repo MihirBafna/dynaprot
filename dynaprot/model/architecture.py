@@ -100,11 +100,11 @@ class DynaProt(LightningModule):
         
         for dynamics_type, losses in loss_dict.items():
             for loss_name, loss_value in losses.items():
-                log_key = f"train/{dynamics_type}/{loss_name}"
+                log_key = f"train_losses/{dynamics_type}/{loss_name}"
                 self.logger.experiment[log_key].append(loss_value)
         # Log the loss and return
-        self.log_dict({"train_total_loss":total_loss})
-        self.logger.experiment["train/total_loss"].append(loss_value)
+        # self.log_dict({"train_total_loss":total_loss})
+        self.logger.experiment["train_losses/total_loss"].append(loss_value)
         return total_loss
 
 
