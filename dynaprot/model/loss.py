@@ -25,15 +25,26 @@ class DynaProtLoss(torch.nn.Module):
         """
         
         mask = batch["resi_pad_mask"].bool()
-        true_means, true_covars = batch["dynamics_means"].float()[mask], batch["dynamics_covars"].float()[mask]
-        predicted_means, predicted_covars = preds["means"][mask], preds["covars"][mask]
+        
+        true_means = batch["dynamics_means"].float()[mask]
+        # predicted_means = preds["means"][mask]
 
+        # true_covars = batch["dynamics_covars"].float()[mask]  * torch.eye(3).to(preds["covars"])
+        # predicted_covars =  preds["covars"][mask] * torch.eye(3).to(preds["covars"])
+        true_covars = batch["dynamics_covars"].float()[mask]
+        predicted_covars =  preds["covars"][mask]
+        
         loss_weights = self.cfg["eval_params"]["loss_weights"]
 
         loss_dict = dict(
             resi_gaussians=dict(
-                mse_means=F.mse_loss(predicted_means, true_means) if loss_weights["resi_gaussians"]["mse_means"] is not None else None,
-                kldiv=metrics.kl_divergence_mvn(predicted_means, predicted_covars, true_means, true_covars) if loss_weights["resi_gaussians"]["kldiv"] is not None else None
+                # mse_means=F.mse_loss(predicted_means, true_means) if loss_weights["resi_gaussians"]["mse_means"] is not None else None,
+                mse_covs=F.mse_loss(predicted_covars, true_covars) if loss_weights["resi_gaussians"]["mse_covs"] is not None else None,
+                kldiv=metrics.kl_divergence_mvn(true_means, predicted_covars, true_means, true_covars) if loss_weights["resi_gaussians"]["kldiv"] is not None else None,
+                # kldiv=metrics.symmetric_kl(true_means, predicted_covars, true_means, true_covars) if loss_weights["resi_gaussians"]["kldiv"] is not None else None,
+                # eigen_penalty = metrics.eigenvalue_penalty(predicted_covars) if loss_weights["resi_gaussians"]["eigen_penalty"] is not None else None,
+                frob_norm=metrics.frobenius_norm(predicted_covars - true_covars)/metrics.frobenius_norm(true_covars) if loss_weights["resi_gaussians"]["frob_norm"] is not None else None,
+                log_frob_norm = metrics.log_frobenius_norm(predicted_covars, true_covars) if loss_weights["resi_gaussians"]["log_frob_norm"] is not None else None
             ),
             resi_rmsf=dict(
                 # TODO: Implement RMSF loss calculation
