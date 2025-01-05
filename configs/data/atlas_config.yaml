@@ -1,0 +1,12 @@
+# atlas dataset config.yaml
+
+# Repository Path
+repo_dir: "/data/cb/mihirb14/projects/DynaProt"
+
+# Data Paths
+data_dir: "/data/cb/scratch/datasets/atlas_dynamics_labels"
+
+  
+# Data Preprocessing Config:
+max_num_residues: 512
+
