@@ -7,11 +7,12 @@ import neptune as neptune
 from pytorch_lightning.loggers import NeptuneLogger
 from dynaprot.model.architecture import DynaProt
 from dynaprot.data.datasets import DynaProtDataset , OpenFoldBatchCollator
+from dynaprot.model.callbacks import EigenvalueLoggingCallback
 
 def parse_args():
     parser = argparse.ArgumentParser(description="Training dynaprot")
-    parser.add_argument("--data_config", type=str, required=True, help="Path to the data config YAML file")
-    parser.add_argument("--model_config", type=str, required=True, help="Path to the model config YAML file")
+    parser.add_argument("--data_config",default="configs/data/atlas_config.yaml", type=str, required=False, help="Path to the data config YAML file")
+    parser.add_argument("--model_config",default="configs/model/dynaprot_simple.yaml", type=str, required=False, help="Path to the model config YAML file")
     args = parser.parse_args()
     return args
 
@@ -42,13 +43,13 @@ def main():
     
     train_dataset = DynaProtDataset(data_config)
     print(len(train_dataset), model_config["train_params"]["batch_size"])
-    
+
     train_dataloader = torch.utils.data.DataLoader(
         train_dataset,
         batch_size=model_config["train_params"]["batch_size"],
         collate_fn=OpenFoldBatchCollator(),
         num_workers=12,
-        shuffle=False,
+        shuffle=True,
     )
 
     model = DynaProt(model_config)
@@ -56,10 +57,15 @@ def main():
     trainer = pl.Trainer(
         max_epochs=model_config["train_params"]["epochs"],
         logger=neptune_logger,
-        accelerator="gpu",
+        accelerator=model_config["train_params"]["accelerator"],
+        strategy=model_config["train_params"]["strategy"],
         devices=model_config["train_params"]["num_devices"],
         num_nodes=model_config["train_params"].get("num_nodes",1),
-        precision=model_config["train_params"].get("precision", 32)
+        precision=model_config["train_params"].get("precision", 32),
+        log_every_n_steps=1,
+        callbacks= [
+            EigenvalueLoggingCallback(log_on_step=True, log_on_epoch=False)
+        ],
     )
 
     trainer.fit(model,train_dataloader, val_dataloaders=train_dataloader)
