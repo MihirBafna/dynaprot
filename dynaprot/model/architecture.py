@@ -75,7 +75,7 @@ class DynaProt(LightningModule):
     
     def pred_covars(self, residue_features, lambda_min=0.5, lambda_max=10, soft_clip=True):
         """
-        Predict covariance matrices and apply eigenvalue clipping.
+        Predict covariance matrices (by predicting cholesky factor) and apply eigenvalue clipping.
 
         Args:
             residue_features (torch.Tensor): Input residue features of shape (batch_size, num_residues, feature_dim).
@@ -179,7 +179,6 @@ class DynaProt(LightningModule):
     #     # )
     #     return covars
 
-    
     
     # def on_before_optimizer_step(self, optimizer):
     #     parameters = self.parameters()
