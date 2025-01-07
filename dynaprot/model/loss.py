@@ -46,7 +46,7 @@ class DynaProtLoss(torch.nn.Module):
                 frob_norm=metrics.frobenius_norm(predicted_covars - true_covars)/metrics.frobenius_norm(true_covars) if loss_weights["resi_gaussians"]["frob_norm"] is not None else None,
                 log_frob_norm = metrics.log_frobenius_norm(predicted_covars, true_covars) if loss_weights["resi_gaussians"]["log_frob_norm"] is not None else None,
                 affine_invariant_dist = metrics.affine_invariant_distance(predicted_covars, true_covars) if loss_weights["resi_gaussians"]["affine_invariant_dist"] is not None else None,
-                bures_dist = metrics.bures_distance(predicted_covars, true_covars) if loss_weights["resi_gaussians"]["wasserstein_dist"] is not None else None,
+                bures_dist = metrics.bures_distance(predicted_covars, true_covars) if loss_weights["resi_gaussians"]["bures_dist"] is not None else None,
             ),
             resi_rmsf=dict(
                 # TODO: Implement RMSF loss calculation
