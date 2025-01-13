@@ -184,9 +184,9 @@ class DynaProt(LightningModule):
     #     return covars
 
     
-    # def on_before_optimizer_step(self, optimizer):
-    #     parameters = self.parameters()
-    #     clip_grad_norm_(parameters, self.cfg["train_params"]["grad_clip_norm"])
+    def on_before_optimizer_step(self, optimizer):
+        parameters = self.parameters()
+        clip_grad_norm_(parameters, self.cfg["train_params"]["grad_clip_norm"])
         
     
     def training_step(self, batch, batch_idx):

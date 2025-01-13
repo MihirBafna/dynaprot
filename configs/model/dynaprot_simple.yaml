@@ -9,11 +9,11 @@ train_params:
   precision: 32
   batch_size: 20
   epochs: 10000
-  learning_rate: 0.00001
+  learning_rate: 0.0001
   grad_clip_norm: 1.0
   accelerator: "gpu"
   strategy: "ddp"
-  num_devices: [4,5,6,7]
+  num_devices: [0,1,2,3]
   num_nodes: 1
   project: "openprot/dynamics"
   neptune_api_key: "INSERT YOUR API TOKEN HERE"
