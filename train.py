@@ -52,7 +52,15 @@ def main():
         shuffle=True,
     )
 
-    model = DynaProt(model_config)
+    # model = DynaProt(model_config)
+    
+    ckpt_path = model_config["checkpoint_path"]
+    
+    if ckpt_path != "":
+        model = DynaProt.load_from_checkpoint(checkpoint_path=ckpt_path, config=model_config)
+        print(f"Loaded from checkpoint path: {ckpt_path}")
+    else:
+        model = DynaProt(model_config)
 
     trainer = pl.Trainer(
         max_epochs=model_config["train_params"]["epochs"],

@@ -38,7 +38,7 @@ eval_params:
 
 # Output paths for model artifacts and logs
 
-model_checkpoints: "${repo_dir}/trained/checkpoints"
+checkpoint_path: ""
 logs: "/path/to/logs"
 results: "/path/to/results"
  
