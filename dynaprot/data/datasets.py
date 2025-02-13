@@ -3,18 +3,23 @@ import os
 from torch.utils.data import Dataset
 from openfold.data import data_transforms, feature_pipeline
 from openfold.np.protein import from_pdb_string, Protein
-# import numpy as np
+import numpy as np
 import pandas as pd
 from dynaprot.data.transforms import make_fixed_size
 from dynaprot.data.utils import dict_multimap
-
 
 class DynaProtDataset(Dataset):
     
     def __init__(self, cfg):
         self.cfg = cfg                                                                     
         self.data_dir = cfg["data_dir"]                                                                          # directory of dynaprot preprocessed proteins (tensor dicts)
-        self.protein_list = [prot for prot in os.listdir(self.data_dir) if os.path.isdir(os.path.join(self.data_dir, prot))]  # dynamics dataset protein list
+        self.split = cfg["split"]
+        if self.split == "all":
+            self.protein_list = np.load(cfg["protein_chains_path"])
+        else:
+            path = cfg["protein_chains_path"][:-4] + f"_{self.split}.npy"
+            self.protein_list = np.load(path)
+        # self.protein_list = [prot for prot in os.listdir(self.data_dir) if os.path.isdir(os.path.join(self.data_dir, prot))]  # dynamics dataset protein list
 
     def __len__(self):
         return len(self.protein_list)
