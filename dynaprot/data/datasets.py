@@ -10,10 +10,10 @@ from dynaprot.data.utils import dict_multimap
 
 class DynaProtDataset(Dataset):
     
-    def __init__(self, cfg):
+    def __init__(self, cfg, split="all"):
         self.cfg = cfg                                                                     
-        self.data_dir = cfg["data_dir"]                                                                          # directory of dynaprot preprocessed proteins (tensor dicts)
-        self.split = cfg["split"]
+        self.data_dir = cfg["data_dir"]                             # directory of dynaprot preprocessed proteins (tensor dicts)
+        self.split = split
         if self.split == "all":
             self.protein_list = np.load(cfg["protein_chains_path"])
         else:
