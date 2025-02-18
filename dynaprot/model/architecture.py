@@ -208,14 +208,19 @@ class DynaProt(LightningModule):
         return dict(loss=total_loss,covars=preds["covars"].detach())
 
 
-    # def validation_step(self, batch, batch_idx):
-    #     sequence, true_means, true_variances, initial_coords = batch
-    #     predicted_means, predicted_variances = self(sequence, initial_coords)
+    def validation_step(self, batch, batch_idx):
+        preds = self(batch["aatype"].argmax(dim=-1), Rigid.from_tensor_4x4(batch["frames"]), batch["resi_pad_mask"])
 
-    #     mean_loss = F.mse_loss(predicted_means, true_means)
-    #     variance_loss = self.kl_divergence_loss(predicted_means, predicted_variances, true_means, true_variances)
-    #     total_loss = mean_loss + self.beta * variance_loss
-
-    #     # Log validation loss
-    #     self.log('val_loss', total_loss)
-    #     return total_loss
+        total_loss, loss_dict = self.loss(preds, batch)
+        
+        for dynamics_type, losses in loss_dict.items():
+            for loss_name, loss_value in losses.items():
+                log_key = f"val_losses/{dynamics_type}/{loss_name}"
+                # self.log_dict({log_key:loss_value})
+                if self.logger is not None:
+                    self.logger.experiment[log_key].append(loss_value)
+        # Log the loss and return
+        # self.log_dict({"train_losses/total_loss":total_loss})
+        if self.logger is not None:
+            self.logger.experiment["val_losses/total_loss"].append(total_loss)
+        return dict(loss=total_loss,covars=preds["covars"].detach())
