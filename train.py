@@ -41,8 +41,11 @@ def main():
         log_model_checkpoints=model_config["train_params"].get("log_model_checkpoints", True)
     )
     
-    train_dataset = DynaProtDataset(data_config)
-    print(len(train_dataset), model_config["train_params"]["batch_size"])
+    train_dataset = DynaProtDataset(data_config, split="train")
+    val_dataset = DynaProtDataset(data_config, split="val")
+    test_dataset = DynaProtDataset(data_config, split="test")
+    print(f"Train: {len(train_dataset)} | Val: {len(val_dataset)} | Test: {len(test_dataset)}")
+    # print(len(train_dataset), model_config["train_params"]["batch_size"])
 
     train_dataloader = torch.utils.data.DataLoader(
         train_dataset,
@@ -51,8 +54,23 @@ def main():
         num_workers=12,
         shuffle=True,
     )
+    
+    val_dataloader = torch.utils.data.DataLoader(
+        val_dataset,
+        batch_size=model_config["train_params"]["batch_size"],
+        collate_fn=OpenFoldBatchCollator(),
+        num_workers=12,
+        shuffle=False,
+    )
+    
+    # test_dataloader = torch.utils.data.DataLoader(
+    #     test_dataset,
+    #     batch_size=model_config["train_params"]["batch_size"],
+    #     collate_fn=OpenFoldBatchCollator(),
+    #     num_workers=12,
+    #     shuffle=False,
+    # )
 
-    # model = DynaProt(model_config)
     
     ckpt_path = model_config["checkpoint_path"]
     
@@ -76,7 +94,7 @@ def main():
         ],
     )
 
-    trainer.fit(model,train_dataloader, val_dataloaders=train_dataloader)
+    trainer.fit(model,train_dataloader, val_dataloaders=val_dataloader)
 
 
 if __name__ == "__main__":
