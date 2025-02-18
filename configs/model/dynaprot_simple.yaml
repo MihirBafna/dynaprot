@@ -13,9 +13,9 @@ train_params:
   grad_clip_norm: 1.0
   accelerator: "gpu"
   strategy: "ddp"
-  num_devices: [0,1,2,3,4,5]
+  num_devices: [1,2,3,4,5,6]
   num_nodes: 1
-  project: "openprot/dynamics"
+  project: "mihirbafna/dynaprot"
   neptune_api_key: "INSERT YOUR API TOKEN HERE"
   tags: ["dynaprot", "debugging"]
   log_model_checkpoints: True
