@@ -12,8 +12,7 @@ import torch
 import argparse
 from functools import partial
 from Bio import PDB
-
-
+import random
 
 def parse_args():
     parser = argparse.ArgumentParser(description='Process MD trajectories and compute Gaussian parameters per residue.')
@@ -24,10 +23,14 @@ def parse_args():
 
 
 args = parse_args()
-inpath = args.inpath
-outpath = args.outpath
+inpath = args.inpath        # /data/cb/scratch/datasets/atlas
+outpath = args.outpath      # /data/cb/scratch/datasets/atlas_dynamics_labels
 console =Console()
 
+seed = 42
+torch.manual_seed(seed)
+np.random.seed(seed)
+random.seed(seed)
 
 def preprocess_atlas():
     # proteins = [prot for prot in os.listdir(inpath) if os.path.isdir(os.path.join(inpath, prot))]
@@ -36,17 +39,20 @@ def preprocess_atlas():
     with Progress() as progress:
         task = progress.add_task(f"[cyan]dynaprot preprocessing of ATLAS chains (0/{total_chains})...", total=total_chains)
         with multiprocessing.Pool(processes=40) as pool:
-            for i,protein in enumerate(pool.imap(process_one_trajectory, proteins)):
+            for i,protein in enumerate(pool.imap(process_one_trajectory_atlas, proteins)):
                 progress.update(task, advance=1,description=f"[cyan]dynaprot preprocessing of ATLAS chains ({i}/{total_chains})... completed {protein}")
 
 
 
-def process_one_trajectory(prot):   # just taking R1 traj and topology file as pdb. Is this valid??
+def process_one_trajectory_atlas(prot):   # just taking R1 traj and topology file as pdb. Is this valid??
     name,chain = prot.split("_")
     
     traj_path = os.path.join(inpath, prot, prot+"_prod_R1_fit.xtc")
     pdb_path = os.path.join(inpath,prot, prot+".pdb")
     
+    if not os.path.exists(outpath+f"/{prot}/"):
+        os.mkdir(outpath+f"/{prot}/")
+
     # generate feats and process them into dicts
     feats = from_pdb_string(open(pdb_path, 'r').read())
     feats = feature_pipeline.np_to_tensor_dict(feats, feats.keys()) # converting to tensor dict
@@ -62,12 +68,10 @@ def process_one_trajectory(prot):   # just taking R1 traj and topology file as p
     traj.superpose(ref)         # superpose to our mmcifs
                                                 
     selected_feats["dynamics_means"], selected_feats["dynamics_covars"] = compute_gaussians_per_residue(traj)
+    selected_feats["dynamics_fullcovar"] = compute_full_covariance(traj)
     
-    selected_feats["dynamics_covars"] = align_one_protein(selected_feats)
-    
-    # print(selected_feats)
-    if not os.path.exists(outpath+f"/{prot}/"):
-        os.mkdir(outpath+f"/{prot}/")
+    selected_feats["dynamics_covars"], selected_feats["dynamics_fullcovar"] = align_one_protein(selected_feats)
+
     
     torch.save(selected_feats,os.path.join(outpath,prot,f"{prot}.pt"))
         
@@ -77,11 +81,11 @@ def process_one_trajectory(prot):   # just taking R1 traj and topology file as p
 def compute_gaussians_per_residue(traj):
     num_residues = traj.topology.n_residues
     means = np.zeros((num_residues, 3))       # Shape (n_residues, 3) for (x, y, z)
-    variances = np.zeros((num_residues, 3,3))   # Shape (n_residues, 3) for (x, y, z)
+    covariances = np.zeros((num_residues, 3,3))   # Shape (n_residues, 3) for (x, y, z)
 
-    # Loop over all residues
+
     for i, residue in enumerate(traj.topology.residues):
-        # Get atom indices for this residue
+
         atom_indices = [atom.index for atom in residue.atoms]
         
         # Extract xyz coordinates for all atoms in the residue across all frames
@@ -93,11 +97,33 @@ def compute_gaussians_per_residue(traj):
 
         centered_data = xyz - means[i]
         
-        variances[i] = centered_data.T @ centered_data /(centered_data.shape[0] - 1)  # shape (3, 3) 
+        covariances[i] = centered_data.T @ centered_data /(centered_data.shape[0] - 1)  # shape (3, 3) 
 
     
 
-    return torch.from_numpy(means), torch.from_numpy(variances)
+    return torch.from_numpy(means), torch.from_numpy(covariances)
+
+
+def compute_full_covariance(traj):
+    residuecoords = []
+    for i, residue in enumerate(traj.topology.residues):
+
+        atom_indices = [atom.index for atom in residue.atoms]
+        
+        # Extract xyz coordinates for all atoms in the residue across all frames
+        # scale nanometers to angstroms (x10)
+        xyz = np.mean(traj.xyz[:, atom_indices, :],axis=1) * 10 # shape (T, 3)  frames by residue i's position (mean pos of atoms) 
+        residuecoords.append(xyz)
+
+    X = np.stack(residuecoords, axis=2) # shape (T, 3, n_residues) 
+    T, _, N = X.shape  # T: time frames, 3: coordinates, N: residues
+    X_full = X.reshape((T,3*N))    # shape (T, 3 * num_residues)
+
+    X_mean = np.mean(X_full, axis=0)
+    X_centered = X_full - X_mean
+    
+    covariance_full = X_centered.T @ X_centered / (T-1)
+    return torch.from_numpy(covariance_full)
 
 
 # def align_to_local_frames():
@@ -120,7 +146,7 @@ def compute_gaussians_per_residue(traj):
             
 
 
-# process_one_trajectory("2c9i_D")
+process_one_trajectory_atlas("1bq8_A")
 
-preprocess_atlas()
+# preprocess_atlas()
 
