@@ -1,6 +1,7 @@
 import argparse
 import yaml
 import os
+import re
 import pytorch_lightning as pl
 import torch
 import neptune as neptune
@@ -34,12 +35,6 @@ def main():
     
     model_config["train_params"]["neptune_api_key"] = os.getenv("NEPTUNE_API_TOKEN")
 
-    neptune_logger = NeptuneLogger(
-        project=model_config["train_params"]["project"],
-        api_key=model_config["train_params"]["neptune_api_key"],
-        tags=model_config["train_params"].get("tags", []),
-        log_model_checkpoints=model_config["train_params"].get("log_model_checkpoints", True)
-    )
     
     train_dataset = DynaProtDataset(data_config, split="train")
     val_dataset = DynaProtDataset(data_config, split="val")
@@ -75,11 +70,30 @@ def main():
     ckpt_path = model_config["checkpoint_path"]
     
     if ckpt_path != "":
-        model = DynaProt.load_from_checkpoint(checkpoint_path=ckpt_path, config=model_config)
-        print(f"Loaded from checkpoint path: {ckpt_path}")
+        model = DynaProt.load_from_checkpoint(checkpoint_path=ckpt_path, cfg=model_config)
+        run_id = re.search(r'\.neptune/([^/]+)', ckpt_path).group(1)
+        run = neptune.init_run(
+            with_id=run_id,
+            project=model_config["train_params"]["project"],
+            api_token=model_config["train_params"]["neptune_api_key"],
+            tags=model_config["train_params"].get("tags", []),
+            ) 
+        neptune_logger = NeptuneLogger(
+            run=run,
+            log_model_checkpoints=model_config["train_params"].get("log_model_checkpoints", True)
+        )
+    
+        print(f"Loaded from checkpoint path: {ckpt_path} and run id: {run_id}")
     else:
         model = DynaProt(model_config)
 
+        neptune_logger = NeptuneLogger(
+            project=model_config["train_params"]["project"],
+            api_key=model_config["train_params"]["neptune_api_key"],
+            tags=model_config["train_params"].get("tags", []),
+            log_model_checkpoints=model_config["train_params"].get("log_model_checkpoints", True)
+        )
+    
     trainer = pl.Trainer(
         max_epochs=model_config["train_params"]["epochs"],
         logger=neptune_logger,
