@@ -146,7 +146,7 @@ def compute_full_covariance(traj):
             
 
 
-process_one_trajectory_atlas("1bq8_A")
+# process_one_trajectory_atlas("1bq8_A")
 
-# preprocess_atlas()
+preprocess_atlas()
 
