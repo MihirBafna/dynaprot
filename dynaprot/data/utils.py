@@ -143,13 +143,16 @@ def from_pdb_string(pdb_str: str, chain_id: Optional[str] = None) -> dict:
     
     
 def align_one_protein(feats):
-    """Aligns the covariance matrices of a single protein to its local frames."""
-    prot_frames, prot_covars = feats["frames"].double(), feats["dynamics_covars"].double()
+    """Aligns the per residue covariance matrices of a single protein to its local frames."""
+    prot_frames, prot_covars, prot_fullcovar = feats["frames"].double(), feats["dynamics_covars"].double(), feats["dynamics_fullcovar"].double()
     
     # print(prot_frames.shape[0], prot_covars.shape[0])
     assert prot_frames.shape[0] == prot_covars.shape[0]
     rotations = Rigid.from_tensor_4x4(prot_frames).get_rots().get_rot_mats().double()  # Extract rotation matrices
     aligned_covars = torch.einsum("nij,njk,nlk->nil", rotations, prot_covars, rotations)
 
-    return aligned_covars
-   
+    # align full covar
+    R_block = torch.block_diag(*[rotations[i] for i in range(rotations.shape[0])])
+    aligned_fullcovar = R_block @ prot_fullcovar @ R_block.transpose(-1, -2)
+
+    return aligned_covars, aligned_fullcovar
