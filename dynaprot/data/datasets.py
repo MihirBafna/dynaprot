@@ -29,7 +29,7 @@ class DynaProtDataset(Dataset):
         prot_feat_dict = torch.load(os.path.join(self.data_dir,protein_id,f"{protein_id}.pt"))
         prot_feat_dict["aatype"] = torch.eye(21)[prot_feat_dict["aatype"]]
         prot_feat_dict["resi_pad_mask"] = torch.ones(prot_feat_dict["aatype"].shape[0])   
-        
+        del prot_feat_dict["dynamics_fullcovar"] # temporary ignoring full covar
         shape_schema = {}
         for k in prot_feat_dict.keys():
             schema = list(prot_feat_dict[k].size())
