@@ -27,10 +27,13 @@ class DynaProt(LightningModule):
         self.ipa_blocks = nn.ModuleList([InvariantPointAttention(c_s=self.d_model,c_z=self.d_model,c_hidden=16,no_heads=4,no_qk_points=4,no_v_points=8) for _ in range(self.num_ipa_blocks)])
 
         # self.layer_norm = nn.LayerNorm(self.d_model)
+        self.dropout = nn.Dropout(0.2)
         
         # Dense layers for predicting means and variances
         # self.mean_predictor = nn.Linear(self.d_model, 3)  # Predict (x, y, z) mean
         self.covars_predictor = nn.Linear(self.d_model, 6)  # Predict lower diagonal matrix L (cholesky decomposition) to ensure symmetric psd Σ = LL^T
+        
+        # self.global_corr_predictor =
         
         # for stability
         self.epsilon = 1e-6      # regularization to ensure Σ is positive definite and other stability issues
@@ -58,6 +61,7 @@ class DynaProt(LightningModule):
         for ipa_block in self.ipa_blocks:
             residue_features = ipa_block(residue_features, pairwise_embeddings, frames, mask)
 
+        residue_features = self.dropout(residue_features)
         # residue_features = self.layer_norm(residue_features)
 
         preds = dict(
