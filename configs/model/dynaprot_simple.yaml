@@ -38,7 +38,8 @@ eval_params:
 
 # Output paths for model artifacts and logs
 
-checkpoint_path: "/data/cb/mihirb14/projects/dynaprot/.neptune/DYNAMICS-131/DYNAMICS-131/checkpoints/epoch=5934-step=65285.ckpt"
+# checkpoint_path: "/data/cb/mihirb14/projects/dynaprot/.neptune/DYNAMICS-131/DYNAMICS-131/checkpoints/epoch=5934-step=65285.ckpt"
+checkpoint_path: ""
 logs: "/path/to/logs"
 results: "/path/to/results"
  
