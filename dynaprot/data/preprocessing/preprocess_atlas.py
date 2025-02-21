@@ -13,7 +13,7 @@ import argparse
 from functools import partial
 from Bio import PDB
 import random
-# import time
+import time
 
 def parse_args():
     parser = argparse.ArgumentParser(description='Process MD trajectories and compute Gaussian parameters per residue.')
@@ -35,7 +35,8 @@ random.seed(seed)
 
 def preprocess_atlas():
     # proteins = [prot for prot in os.listdir(inpath) if os.path.isdir(os.path.join(inpath, prot))]
-    proteins = np.load("dynaprot/data/preprocessing/protein_lists/atlas_proteins.npy")
+    tic = time.time()
+    proteins = np.load("dynaprot/data/preprocessing/protein_lists/atlas_proteins.npy")[:2]
     total_chains = len(proteins)
     with Progress() as progress:
         task = progress.add_task(f"[cyan]dynaprot preprocessing of ATLAS chains (0/{total_chains})...", total=total_chains)
@@ -43,6 +44,8 @@ def preprocess_atlas():
             for i,protein in enumerate(pool.imap(process_one_trajectory_atlas, proteins)):
                 progress.update(task, advance=1,description=f"[cyan]dynaprot preprocessing of ATLAS chains ({i}/{total_chains})... completed {protein}")
 
+        tim = round((time.time() - tic)/60,2)
+        progress.update(task, advance=1,description=f"[cyan]completed dynaprot preprocessing of ATLAS chains ({total_chains}/{total_chains}) in {tim} min")
 
 
 def process_one_trajectory_atlas(prot):   # just taking R1 traj and topology file as pdb. Is this valid??
