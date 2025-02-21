@@ -13,6 +13,7 @@ import argparse
 from functools import partial
 from Bio import PDB
 import random
+# import time
 
 def parse_args():
     parser = argparse.ArgumentParser(description='Process MD trajectories and compute Gaussian parameters per residue.')
@@ -72,17 +73,18 @@ def process_one_trajectory_atlas(prot):   # just taking R1 traj and topology fil
     
     selected_feats["dynamics_covars"], selected_feats["dynamics_fullcovar"] = align_one_protein(selected_feats)
 
+    selected_feats["dynamics_correlations"] = compute_residue_correlations(selected_feats["dynamics_fullcovar"])
     
     torch.save(selected_feats,os.path.join(outpath,prot,f"{prot}.pt"))
         
     return prot
+    
     
 # Function to compute mean and variance per residue
 def compute_gaussians_per_residue(traj):
     num_residues = traj.topology.n_residues
     means = np.zeros((num_residues, 3))       # Shape (n_residues, 3) for (x, y, z)
     covariances = np.zeros((num_residues, 3,3))   # Shape (n_residues, 3) for (x, y, z)
-
 
     for i, residue in enumerate(traj.topology.residues):
 
@@ -124,6 +126,28 @@ def compute_full_covariance(traj):
     
     covariance_full = X_centered.T @ X_centered / (T-1)
     return torch.from_numpy(covariance_full)
+
+
+def compute_residue_correlations(full_cov, mode="trace"):  # using trace or fro based correlation. Also, should probably run after alignment
+
+    N = int(full_cov.shape[0]/3)
+    C = np.zeros((N, N))
+    if mode=="trace":
+        corr_func = lambda x : np.trace(x)
+    elif mode=="frobenius" or mode =="fro":
+        corr_func = lambda x : np.linalg.norm(x,'fro')
+    
+    for i in range(N):
+        Sigma_ii = full_cov[3*i:3*i+3, 3*i:3*i+3]
+        corr_ii = corr_func(Sigma_ii)
+        for j in range(N):
+            Sigma_jj = full_cov[3*j:3*j+3, 3*j:3*j+3]
+            corr_jj = corr_func(Sigma_jj)
+            Sigma_ij = full_cov[3*i:3*i+3, 3*j:3*j+3]
+            C[i, j] = corr_func(Sigma_ij) / np.sqrt(corr_ii * corr_jj)
+    
+    return torch.from_numpy(C)
+
 
 
 # def align_to_local_frames():

@@ -40,7 +40,6 @@ def main():
     val_dataset = DynaProtDataset(data_config, split="val")
     test_dataset = DynaProtDataset(data_config, split="test")
     print(f"Train: {len(train_dataset)} | Val: {len(val_dataset)} | Test: {len(test_dataset)}")
-    # print(len(train_dataset), model_config["train_params"]["batch_size"])
 
     train_dataloader = torch.utils.data.DataLoader(
         train_dataset,
