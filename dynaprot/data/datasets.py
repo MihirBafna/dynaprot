@@ -5,6 +5,7 @@ from openfold.data import data_transforms, feature_pipeline
 from openfold.np.protein import from_pdb_string, Protein
 import numpy as np
 import pandas as pd
+import random
 from dynaprot.data.transforms import make_fixed_size
 from dynaprot.data.utils import dict_multimap
 
@@ -26,14 +27,17 @@ class DynaProtDataset(Dataset):
 
     def __getitem__(self, idx):
         protein_id = self.protein_list[idx]
-        prot_feat_dict = torch.load(os.path.join(self.data_dir,protein_id,f"{protein_id}.pt"))
+        replicate_num = random.randint(1, 3)
+        prot_feat_dict = torch.load(os.path.join(self.data_dir,protein_id,f"{protein_id}_rep{replicate_num}.pt"))
         prot_feat_dict["aatype"] = torch.eye(21)[prot_feat_dict["aatype"]]
         prot_feat_dict["resi_pad_mask"] = torch.ones(prot_feat_dict["aatype"].shape[0])   
-        del prot_feat_dict["dynamics_fullcovar"] # temporary ignoring full covar
+        # del prot_feat_dict["dynamics_fullcovar"] # temporary ignoring full covar
         shape_schema = {}
         for k in prot_feat_dict.keys():
             schema = list(prot_feat_dict[k].size())
             schema[0] = "NUM_RES"   # to be infilled by padding function
+            if k =="dynamics_fullcovar" or k == "dynamics_correlation": # make better this is basically j hardcoded
+                schema[1] = "NUM_RES"
             shape_schema[k] = schema
 
         padded_selected_feats = make_fixed_size(prot_feat_dict,shape_schema, num_residues = self.cfg["max_num_residues"])      
