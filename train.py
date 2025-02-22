@@ -103,7 +103,7 @@ def main():
         precision=model_config["train_params"].get("precision", 32),
         log_every_n_steps=1,
         callbacks= [
-            EigenvalueLoggingCallback(log_on_step=True, log_on_epoch=False)
+            # EigenvalueLoggingCallback(log_on_step=True, log_on_epoch=False)
         ],
     )
 
