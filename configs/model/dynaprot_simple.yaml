@@ -13,25 +13,28 @@ train_params:
   grad_clip_norm: 1.0
   accelerator: "gpu"
   strategy: "ddp"
-  num_devices: [3,4,5,6,7]
+  num_devices: [6]
   num_nodes: 1
   project: "openprot/dynamics"
   neptune_api_key: "INSERT YOUR API TOKEN HERE"
-  tags: ["dynaprot", "debugging","dropout"]
+  tags: ["dynaprot", "debugging","pairwise_dynamics"]
   log_model_checkpoints: True
 
 eval_params:    
   loss_weights:  # hyperparameters for loss functions per dynamics readout, if null/0.0 then loss is not used (0.0 will still log the loss)
     resi_gaussians:
-      mse_means: 0.0
-      mse_covs: 0.0
-      kldiv: 0.0
-      eigen_penalty: 0.0
-      cond_penalty: 0.0
-      frob_norm: 0.0
-      log_frob_norm: 0.0
-      affine_invariant_dist: 0.0
-      bures_dist: 1.0
+      mse_means: null
+      mse_covs: null
+      kldiv: null
+      eigen_penalty: null
+      cond_penalty: null
+      frob_norm: null
+      log_frob_norm: null
+      affine_invariant_dist: null
+      bures_dist: null
+    resi_correlations:
+      mse: 0.0
+      
     resi_rmsf: null
     resi_rmsd: null
     resi_rg: null
