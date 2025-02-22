@@ -49,7 +49,7 @@ class DynaProtLoss(torch.nn.Module):
             ),
             resi_correlations=dict(
                 mse=F.mse_loss(predicted_corrs, true_corrs) if loss_weights["resi_correlations"]["mse"] is not None else None,
-
+                bures_dist = metrics.bures_distance(predicted_corrs, true_corrs) if loss_weights["resi_correlations"]["bures_dist"] is not None else None,
             ),
             resi_rmsf=dict(
                 # TODO: Implement RMSF loss calculation
