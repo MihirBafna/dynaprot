@@ -44,7 +44,7 @@ class DynaProt(LightningModule):
         
     def configure_optimizers(self):
         # AdamW optimizer
-        optimizer = optim.AdamW(self.parameters(), lr=self.lr)
+        optimizer = optim.AdamW(self.parameters(), lr=self.lr, weight_decay=1e-5)
         return optimizer
 
 
