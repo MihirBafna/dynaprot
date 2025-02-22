@@ -36,7 +36,7 @@ random.seed(seed)
 def preprocess_atlas():
     # proteins = [prot for prot in os.listdir(inpath) if os.path.isdir(os.path.join(inpath, prot))]
     tic = time.time()
-    proteins = np.load("dynaprot/data/preprocessing/protein_lists/atlas_proteins.npy")[:2]
+    proteins = np.load("dynaprot/data/preprocessing/protein_lists/atlas_proteins.npy")
     total_chains = len(proteins)
     with Progress() as progress:
         task = progress.add_task(f"[cyan]dynaprot preprocessing of ATLAS chains (0/{total_chains})...", total=total_chains)
@@ -50,35 +50,35 @@ def preprocess_atlas():
 
 def process_one_trajectory_atlas(prot):   # just taking R1 traj and topology file as pdb. Is this valid??
     name,chain = prot.split("_")
-    
-    traj_path = os.path.join(inpath, prot, prot+"_prod_R1_fit.xtc")
-    pdb_path = os.path.join(inpath,prot, prot+".pdb")
-    
-    if not os.path.exists(outpath+f"/{prot}/"):
-        os.mkdir(outpath+f"/{prot}/")
+    for i in range(3):
+        traj_path = os.path.join(inpath, prot, prot+f"_prod_R{i+1}_fit.xtc")
+        pdb_path = os.path.join(inpath,prot, prot+".pdb")
+        
+        if not os.path.exists(outpath+f"/{prot}/"):
+            os.mkdir(outpath+f"/{prot}/")
 
-    # generate feats and process them into dicts
-    feats = from_pdb_string(open(pdb_path, 'r').read())
-    feats = feature_pipeline.np_to_tensor_dict(feats, feats.keys()) # converting to tensor dict
-    feats = data_transforms.atom37_to_frames(feats)                 # Getting true backbone frames (num_res, 4, 4)
-    feats = data_transforms.get_backbone_frames(feats)
-    selected_feats = {k:feats[k] for k in ["aatype","residue_index","all_atom_positions","all_atom_mask"]}
-    selected_feats["frames"] = feats["backbone_rigid_tensor"] 
+        # generate feats and process them into dicts
+        feats = from_pdb_string(open(pdb_path, 'r').read())
+        feats = feature_pipeline.np_to_tensor_dict(feats, feats.keys()) # converting to tensor dict
+        feats = data_transforms.atom37_to_frames(feats)                 # Getting true backbone frames (num_res, 4, 4)
+        feats = data_transforms.get_backbone_frames(feats)
+        selected_feats = {k:feats[k] for k in ["aatype","residue_index","all_atom_positions","all_atom_mask"]}
+        selected_feats["frames"] = feats["backbone_rigid_tensor"] 
 
-    
-    # compute all dynamics here
-    traj = md.load(traj_path,top=pdb_path)
-    ref = md.load(pdb_path)     
-    traj.superpose(ref)         # superpose to our mmcifs
-                                                
-    selected_feats["dynamics_means"], selected_feats["dynamics_covars"] = compute_gaussians_per_residue(traj)
-    selected_feats["dynamics_fullcovar"] = compute_full_covariance(traj)
-    
-    selected_feats["dynamics_covars"], selected_feats["dynamics_fullcovar"] = align_one_protein(selected_feats)
+        
+        # compute all dynamics here
+        traj = md.load(traj_path,top=pdb_path)
+        ref = md.load(pdb_path)     
+        traj.superpose(ref)         # superpose to our mmcifs
+                                                    
+        selected_feats["dynamics_means"], selected_feats["dynamics_covars"] = compute_gaussians_per_residue(traj)
+        selected_feats["dynamics_fullcovar"] = compute_full_covariance(traj)
+        
+        selected_feats["dynamics_covars"], selected_feats["dynamics_fullcovar"] = align_one_protein(selected_feats)
 
-    selected_feats["dynamics_correlations"] = compute_residue_correlations(selected_feats["dynamics_fullcovar"])
-    
-    torch.save(selected_feats,os.path.join(outpath,prot,f"{prot}.pt"))
+        selected_feats["dynamics_correlations"] = compute_residue_correlations(selected_feats["dynamics_fullcovar"])
+        
+        torch.save(selected_feats,os.path.join(outpath,prot,f"{prot}_rep{i+1}.pt"))
         
     return prot
     
