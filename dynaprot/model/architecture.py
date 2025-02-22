@@ -31,8 +31,9 @@ class DynaProt(LightningModule):
         
         # Dense layers for predicting means and variances
         # self.mean_predictor = nn.Linear(self.d_model, 3)  # Predict (x, y, z) mean
-        self.covars_predictor = nn.Linear(self.d_model, 6)  # Predict lower diagonal matrix L (cholesky decomposition) to ensure symmetric psd Σ = LL^T
+        # self.covars_predictor = nn.Linear(self.d_model, 6)  # Predict lower diagonal matrix L (cholesky decomposition) to ensure symmetric psd Σ = LL^T
         
+        self.corr_projection = nn.Linear(self.d_model, self.d_model) 
         # self.global_corr_predictor =
         
         # for stability
@@ -64,9 +65,11 @@ class DynaProt(LightningModule):
         residue_features = self.dropout(residue_features)
         # residue_features = self.layer_norm(residue_features)
 
+        
         preds = dict(
             # means = self.pred_mean(residue_features),      # Shape: (batch_size, num_residues, 3)
-            covars = self.pred_covars(residue_features)    # Shape: (batch_size, num_residues, 3, 3)
+            # covars = self.pred_covars(residue_features),    # Shape: (batch_size, num_residues, 3, 3)
+            corrs = self.pred_corrs(residue_features)
         )
 
         return preds
@@ -188,6 +191,12 @@ class DynaProt(LightningModule):
     #     return covars
 
     
+    def pred_corrs(self, residue_features):
+        projection = self.corr_projection(residue_features)
+        C = F.sigmoid(torch.einsum("bni,bmj->bnm", projection, projection))  # Outer product
+        return C
+
+    
     def on_before_optimizer_step(self, optimizer):
         parameters = self.parameters()
         clip_grad_norm_(parameters, self.cfg["train_params"]["grad_clip_norm"])
@@ -209,7 +218,7 @@ class DynaProt(LightningModule):
         # self.log_dict({"train_losses/total_loss":total_loss})
         if self.logger is not None:
             self.logger.experiment["train_losses/total_loss"].append(total_loss)
-        return dict(loss=total_loss,covars=preds["covars"].detach())
+        return dict(loss=total_loss,covars=preds["corrs"].detach())
 
 
     def validation_step(self, batch, batch_idx):
@@ -227,4 +236,4 @@ class DynaProt(LightningModule):
         # self.log_dict({"train_losses/total_loss":total_loss})
         if self.logger is not None:
             self.logger.experiment["val_losses/total_loss"].append(total_loss)
-        return dict(loss=total_loss,covars=preds["covars"].detach())
+        return dict(loss=total_loss,covars=preds["corrs"].detach())

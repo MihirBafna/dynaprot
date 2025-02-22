@@ -31,11 +31,18 @@ class DynaProtDataset(Dataset):
         prot_feat_dict["resi_pad_mask"] = torch.ones(prot_feat_dict["aatype"].shape[0])   
         del prot_feat_dict["dynamics_fullcovar"] # temporary ignoring full covar
         shape_schema = {}
+        
+        # for k in prot_feat_dict.keys():
+        #     print(f"{k}: {prot_feat_dict[k].shape}")
+            
         for k in prot_feat_dict.keys():
             schema = list(prot_feat_dict[k].size())
             schema[0] = "NUM_RES"   # to be infilled by padding function
+            if k == "dynamics_fullcovar" or k == "dynamics_correlations":       # Todo: change this to be better (search for anything with num_res and replace it)
+                schema[1] = "NUM_RES"
             shape_schema[k] = schema
 
+        # print(shape_schema)
         padded_selected_feats = make_fixed_size(prot_feat_dict,shape_schema, num_residues = self.cfg["max_num_residues"])      
         # TODO: random cropping for proteins that are larger than max num res
         
