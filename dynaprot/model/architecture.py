@@ -60,8 +60,8 @@ class DynaProt(LightningModule):
         # IPA blocks
         for ipa_block in self.ipa_blocks:
             residue_features = ipa_block(residue_features, pairwise_embeddings, frames, mask)
+            residue_features = self.dropout(residue_features)
 
-        residue_features = self.dropout(residue_features)
         # residue_features = self.layer_norm(residue_features)
 
         preds = dict(
