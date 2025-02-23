@@ -4,9 +4,9 @@
 repo_dir: "/data/cb/mihirb14/projects/DynaProt"
 
 # Data Paths
-data_dir: "/data/cb/scratch/datasets/atlas_dynamics_labels"   # location of dynamics labels
+data_dir: "/data/cb/scratch/datasets/atlas_dynamics_labels_replicates"   # location of dynamics labels
 protein_chains_path: "/data/cb/mihirb14/projects/dynaprot/dynaprot/data/preprocessing/protein_lists/atlas_chains.npy"   # location of full protein chain list
-# split: "train"    # if all, will just use protein_chains path. Otherwise will use protein_chains[:-4]+f"_{split}.npy"
+replicates: [1,2,3]
 
 # Data Preprocessing Config:
 max_num_residues: 512
