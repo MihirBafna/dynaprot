@@ -21,22 +21,23 @@ class DynaProtDataset(Dataset):
             path = cfg["protein_chains_path"][:-4] + f"_{self.split}.npy"
             self.protein_list = np.load(path)
         # self.protein_list = [prot for prot in os.listdir(self.data_dir) if os.path.isdir(os.path.join(self.data_dir, prot))]  # dynamics dataset protein list
+        self.replicates = cfg["replicates"]
 
     def __len__(self):
         return len(self.protein_list)
 
     def __getitem__(self, idx):
         protein_id = self.protein_list[idx]
-        replicate_num = random.randint(1, 3)
+        replicate_num = random.choice(self.replicates) if self.split == "train" else 1
         prot_feat_dict = torch.load(os.path.join(self.data_dir,protein_id,f"{protein_id}_rep{replicate_num}.pt"))
         prot_feat_dict["aatype"] = torch.eye(21)[prot_feat_dict["aatype"]]
         prot_feat_dict["resi_pad_mask"] = torch.ones(prot_feat_dict["aatype"].shape[0])   
-        # del prot_feat_dict["dynamics_fullcovar"] # temporary ignoring full covar
+        # del prot_feat_dict["dynamics_fullcovar"], prot_feat_dict["dynamics_correlations"] # temporary ignoring full covar
         shape_schema = {}
         for k in prot_feat_dict.keys():
             schema = list(prot_feat_dict[k].size())
             schema[0] = "NUM_RES"   # to be infilled by padding function
-            if k =="dynamics_fullcovar" or k == "dynamics_correlation": # make better this is basically j hardcoded
+            if k =="dynamics_fullcovar" or k == "dynamics_correlations": # make better this is basically j hardcoded
                 schema[1] = "NUM_RES"
             shape_schema[k] = schema
 
