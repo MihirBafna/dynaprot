@@ -1,3 +1,6 @@
+experiments/plots/
+experiments/benchmarking/
+experiments/splits/
 .neptune/
 checkpoints/
 # Byte-compiled / optimized / DLL files
