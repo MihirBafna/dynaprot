@@ -62,7 +62,7 @@ class DynaProt(LightningModule):
             residue_features = ipa_block(residue_features, pairwise_embeddings, frames, mask)
             residue_features = self.dropout(residue_features)
 
-        # residue_features = self.layer_norm(residue_features)
+        residue_features = self.layer_norm(residue_features)
 
         preds = dict(
             # means = self.pred_mean(residue_features),      # Shape: (batch_size, num_residues, 3)

@@ -26,8 +26,8 @@ eval_params:
       mse_means: 0.0
       mse_covs: 0.0
       kldiv: 0.0
-      eigen_penalty: 0.0
-      cond_penalty: 0.0
+      eigen_penalty: null
+      cond_penalty: null
       frob_norm: 0.0
       log_frob_norm: 0.0
       affine_invariant_dist: 0.0
