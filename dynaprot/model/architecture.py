@@ -3,7 +3,8 @@ import torch.nn as nn
 import torch.optim as optim
 from pytorch_lightning import LightningModule
 import torch.nn.functional as F
-from openfold.model.structure_module import InvariantPointAttention
+# from openfold.model.structure_module import InvariantPointAttention
+from dynaprot.model.operators.invariant_point_attention import IPABlock
 from openfold.utils.rigid_utils import  Rigid
 from dynaprot.model.loss import DynaProtLoss
 from torch.nn.utils import clip_grad_norm_
@@ -24,7 +25,8 @@ class DynaProt(LightningModule):
         self.position_embedding = nn.Parameter(torch.zeros(1, self.num_residues, self.d_model))
 
         # IPA layers
-        self.ipa_blocks = nn.ModuleList([InvariantPointAttention(c_s=self.d_model,c_z=self.d_model,c_hidden=16,no_heads=4,no_qk_points=4,no_v_points=8) for _ in range(self.num_ipa_blocks)])
+        # self.ipa_blocks = nn.ModuleList([InvariantPointAttention(c_s=self.d_model,c_z=self.d_model,c_hidden=16,no_heads=4,no_qk_points=4,no_v_points=8) for _ in range(self.num_ipa_blocks)])
+        self.ipa_blocks = nn.ModuleList([IPABlock(dim=self.d_model,require_pairwise_repr=False) for _ in range(self.num_ipa_blocks)])
 
         # self.layer_norm = nn.LayerNorm(self.d_model)
         self.dropout = nn.Dropout(0.2)
@@ -55,14 +57,12 @@ class DynaProt(LightningModule):
         residue_features = seq_emb + pos_emb
 
         # Initialize pairwise embeddings (e.g., could be contact map or learned, right now is zero)
-        pairwise_embeddings = self.init_pairwise_features(sequence).to(residue_features) 
+        # pairwise_embeddings = self.init_pairwise_features(sequence).to(residue_features) 
 
         # IPA blocks
         for ipa_block in self.ipa_blocks:
-            residue_features = ipa_block(residue_features, pairwise_embeddings, frames, mask)
-            residue_features = self.dropout(residue_features)
-
-        residue_features = self.layer_norm(residue_features)
+            residue_features = ipa_block(x=residue_features, rotations=frames.get_rots().get_rot_mats(),translations=frames.get_trans(), mask=mask.bool())
+            # residue_features = self.dropout(residue_features)
 
         preds = dict(
             # means = self.pred_mean(residue_features),      # Shape: (batch_size, num_residues, 3)
