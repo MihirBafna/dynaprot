@@ -26,7 +26,7 @@ class DynaProt(LightningModule):
 
         # IPA layers
         # self.ipa_blocks = nn.ModuleList([InvariantPointAttention(c_s=self.d_model,c_z=self.d_model,c_hidden=16,no_heads=4,no_qk_points=4,no_v_points=8) for _ in range(self.num_ipa_blocks)])
-        self.ipa_blocks = nn.ModuleList([IPABlock(dim=self.d_model,require_pairwise_repr=False) for _ in range(self.num_ipa_blocks)])
+        self.ipa_blocks = nn.ModuleList([IPABlock(dim=self.d_model, require_pairwise_repr=False,post_attn_dropout=0.2,post_ff_dropout=0.2) for _ in range(self.num_ipa_blocks)])
 
         # self.layer_norm = nn.LayerNorm(self.d_model)
         self.dropout = nn.Dropout(0.2)
