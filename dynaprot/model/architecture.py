@@ -18,7 +18,6 @@ class DynaProt(LightningModule):
         self.num_ipa_blocks = cfg["model_params"]["num_ipa_blocks"]
         self.d_model = cfg["model_params"]["d_model"]
         self.lr = cfg["train_params"]["learning_rate"]
-        # self.beta = beta  # Weighting factor for variance loss
 
         # Embedding layers for sequence and pairwise features
         self.sequence_embedding = nn.Embedding(21, self.d_model)  # 21 amino acid types
@@ -29,8 +28,7 @@ class DynaProt(LightningModule):
         # self.ipa_blocks = nn.ModuleList([IPABlock(dim=self.d_model, post_attn_dropout=0.2,post_ff_dropout=0.2, heads=4, point_key_dim = 4, point_value_dim = 8,require_pairwise_repr=False, post_norm=True) for _ in range(self.num_ipa_blocks)])
 
         self.dropout = nn.Dropout(0.2)
-        # Dense layers for predicting means and variances
-        # self.mean_predictor = nn.Linear(self.d_model, 3)  # Predict (x, y, z) mean
+
         self.covars_predictor = nn.Linear(self.d_model, 6)  # Predict lower diagonal matrix L (cholesky decomposition) to ensure symmetric psd Σ = LL^T
         
         # self.global_corr_predictor =
