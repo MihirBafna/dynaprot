@@ -23,10 +23,6 @@ class DynaProt(LightningModule):
         # Embedding layers for sequence and pairwise features
         self.sequence_embedding = nn.Embedding(21, self.d_model)  # 21 amino acid types
         self.position_embedding = nn.Parameter(torch.zeros(1, self.num_residues, self.d_model))
-# The line `# from openfold.model.structure_module import InvariantPointAttention` is a commented-out
-# import statement in the Python code. It seems like the original code might have been using a module
-# named `InvariantPointAttention` from the `openfold.model.structure_module` package, but it is
-# currently commented out.
 
         # IPA layers
         self.ipa_blocks = nn.ModuleList([InvariantPointAttention(c_s=self.d_model,c_z=self.d_model,c_hidden=16,no_heads=4,no_qk_points=4,no_v_points=8) for _ in range(self.num_ipa_blocks)])
