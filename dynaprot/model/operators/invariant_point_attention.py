@@ -222,10 +222,10 @@ class IPABlock(nn.Module):
         *,
         dim,
         ff_mult = 1,
-        ff_num_layers = 3,          # in the paper, they used 3 layer transition (feedforward) block
+        ff_num_layers = 1,          # in the paper, they used 3 layer transition (feedforward) block
         post_norm = True,           # in the paper, they used post-layernorm - offering pre-norm as well
-        post_attn_dropout = 0.,
-        post_ff_dropout = 0.,
+        post_attn_dropout = 0.2,
+        post_ff_dropout = 0.2,
         **kwargs
     ):
         super().__init__()
@@ -235,9 +235,9 @@ class IPABlock(nn.Module):
         self.attn = InvariantPointAttention(dim = dim, **kwargs)
         self.post_attn_dropout = nn.Dropout(post_attn_dropout)
 
-        self.ff_norm = nn.LayerNorm(dim)
-        self.ff = FeedForward(dim, mult = ff_mult, num_layers = ff_num_layers)
-        self.post_ff_dropout = nn.Dropout(post_ff_dropout)
+        # self.ff_norm = nn.LayerNorm(dim)
+        # self.ff = FeedForward(dim, mult = ff_mult, num_layers = ff_num_layers)
+        # self.post_ff_dropout = nn.Dropout(post_ff_dropout)
 
     def forward(self, x, **kwargs):
         post_norm = self.post_norm
@@ -247,8 +247,8 @@ class IPABlock(nn.Module):
         x = self.post_attn_dropout(x)
         x = self.attn_norm(x) if post_norm else x
 
-        ff_input = x if post_norm else self.ff_norm(x)
-        x = self.ff(ff_input) + x
-        x = self.post_ff_dropout(x)
-        x = self.ff_norm(x) if post_norm else x
+        # ff_input = x if post_norm else self.ff_norm(x)
+        # x = self.ff(ff_input) + x
+        # x = self.post_ff_dropout(x)
+        # x = self.ff_norm(x) if post_norm else x
         return x
