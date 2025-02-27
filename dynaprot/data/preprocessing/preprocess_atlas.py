@@ -96,7 +96,7 @@ def compute_gaussians_per_residue(traj, calpha: bool):
         if use_calpha:
             ca_atom = [atom.index for atom in residue.atoms if atom.name == 'CA']
             if ca_atom:
-                xyz = traj.xyz[:, ca_atom[0].astype(np.float64), :] * 10           # shape (T, 3)
+                xyz = traj.xyz[:, ca_atom[0], :].astype(np.float64) * 10           # shape (T, 3)
             else:
                 use_calpha = False  # calpha wasnt found
         
