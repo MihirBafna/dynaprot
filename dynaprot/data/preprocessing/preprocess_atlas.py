@@ -19,6 +19,8 @@ def parse_args():
     parser = argparse.ArgumentParser(description='Process MD trajectories and compute Gaussian parameters per residue.')
     parser.add_argument('--inpath', type=str, required=False, help='Input directory containing folders (protein names) that have trajectories')
     parser.add_argument('--outpath', type=str, required=False, help='Output directory to save the results.')
+    parser.add_argument('--calpha', action='store_true', help='Use Cα atoms instead of centroids.')
+
     
     return parser.parse_args()
 
@@ -71,8 +73,8 @@ def process_one_trajectory_atlas(prot):   # just taking R1 traj and topology fil
         ref = md.load(pdb_path)     
         traj.superpose(ref)         # superpose to our mmcifs
                                                     
-        selected_feats["dynamics_means"], selected_feats["dynamics_covars"] = compute_gaussians_per_residue(traj)
-        selected_feats["dynamics_fullcovar"] = compute_full_covariance(traj)
+        selected_feats["dynamics_means"], selected_feats["dynamics_covars"],selected_feats["dynamics_fullcovar"] = compute_gaussians_per_residue(traj, args.calpha)
+        # selected_feats["dynamics_fullcovar"] = compute_full_covariance(traj, args.calpha)
         
         selected_feats["dynamics_covars"], selected_feats["dynamics_fullcovar"] = align_one_protein(selected_feats)
 
@@ -81,54 +83,71 @@ def process_one_trajectory_atlas(prot):   # just taking R1 traj and topology fil
         torch.save(selected_feats,os.path.join(outpath,prot,f"{prot}_rep{i+1}.pt"))
         
     return prot
+
     
-    
-# Function to compute mean and variance per residue
-def compute_gaussians_per_residue(traj):
+def compute_gaussians_per_residue(traj, calpha: bool):
     num_residues = traj.topology.n_residues
-    means = np.zeros((num_residues, 3))       # Shape (n_residues, 3) for (x, y, z)
-    covariances = np.zeros((num_residues, 3,3))   # Shape (n_residues, 3) for (x, y, z)
-
-    for i, residue in enumerate(traj.topology.residues):
-
-        atom_indices = [atom.index for atom in residue.atoms]
-        
-        # Extract xyz coordinates for all atoms in the residue across all frames
-        # scale nanometers to angstroms (x10)
-        xyz = np.mean(traj.xyz[:, atom_indices, :],axis=1) * 10 # shape (n_frames, 3)  frames by residue i's position (mean pos of atoms) 
-
-        # Compute mean and variance across all frames for each atom
-        means[i] = np.mean(xyz, axis=0)  # shape (1, 3)
-
-        centered_data = xyz - means[i]
-        
-        covariances[i] = centered_data.T @ centered_data /(centered_data.shape[0] - 1)  # shape (3, 3) 
-
-    
-
-    return torch.from_numpy(means), torch.from_numpy(covariances)
-
-
-def compute_full_covariance(traj):
+    means = np.zeros((num_residues, 3),dtype=np.float64)       # Shape (n_residues, 3) for (x, y, z)
+    covariances = np.zeros((num_residues, 3,3),dtype=np.float64)   # Shape (n_residues, 3) for (x, y, z)
     residuecoords = []
+
     for i, residue in enumerate(traj.topology.residues):
-
-        atom_indices = [atom.index for atom in residue.atoms]
+        use_calpha = calpha
+        if use_calpha:
+            ca_atom = [atom.index for atom in residue.atoms if atom.name == 'CA']
+            if ca_atom:
+                xyz = traj.xyz[:, ca_atom[0].astype(np.float64), :] * 10           # shape (T, 3)
+            else:
+                use_calpha = False  # calpha wasnt found
         
-        # Extract xyz coordinates for all atoms in the residue across all frames
-        # scale nanometers to angstroms (x10)
-        xyz = np.mean(traj.xyz[:, atom_indices, :],axis=1) * 10 # shape (T, 3)  frames by residue i's position (mean pos of atoms) 
-        residuecoords.append(xyz)
+        if not use_calpha:
+            atom_indices = [atom.index for atom in residue.atoms]   # Extract xyz coordinates for all atoms in the residue across all frames
+            # scale nanometers to angstroms (x10)
+            xyz = np.mean(traj.xyz[:, atom_indices, :].astype(np.float64),axis=1) * 10 # shape (T, 3)  frames by residue i's position (mean pos of atoms) 
 
-    X = np.stack(residuecoords, axis=2) # shape (T, 3, n_residues) 
-    T, _, N = X.shape  # T: time frames, 3: coordinates, N: residues
-    X_full = X.reshape((T,3*N))    # shape (T, 3 * num_residues)
+        mean_xyz = np.mean(xyz, axis=0).astype(np.float64)  # shape (1, 3)
+        centered_xyz = xyz-mean_xyz # shape (T,3)
+        residuecoords.append(centered_xyz)
 
-    X_mean = np.mean(X_full, axis=0)
-    X_centered = X_full - X_mean
+        # Compute mean and variance across all frames for each residue
+        means[i] = mean_xyz
+        covariances[i] = (centered_xyz.T @ centered_xyz /(centered_xyz.shape[0] - 1)).astype(np.float64)  # shape (3, 3) 
+
+    X_centered = np.stack(residuecoords, axis=2).astype(np.float64) # shape (T, 3, n_residues) 
+    T, _, N = X_centered.shape  # T: time frames, 3: coordinates, N: residues
+    X_centered = X_centered.reshape((T,3*N))    # shape (T, 3 * num_residues)
     
-    covariance_full = X_centered.T @ X_centered / (T-1)
-    return torch.from_numpy(covariance_full)
+    covariance_full = (X_centered.T @ X_centered / (T-1)).astype(np.float64)
+    
+    return torch.from_numpy(means), torch.from_numpy(covariances), torch.from_numpy(covariance_full)
+
+
+# def compute_full_covariance(traj, calpha: bool):
+#     residuecoords = []
+#     for i, residue in enumerate(traj.topology.residues):
+#         use_calpha = calpha
+#         if use_calpha:
+#                 ca_atom = [atom.index for atom in residue.atoms if atom.name == 'CA']
+#                 if ca_atom:
+#                     xyz = traj.xyz[:, ca_atom[0], :] * 10           # shape (n_frames, 3)
+#                 else:
+#                     use_calpha = False  # calpha wasnt found
+#         if not use_calpha:
+#             # Extract xyz coordinates for all atoms in the residue across all frames
+#             atom_indices = [atom.index for atom in residue.atoms]
+#             # scale nanometers to angstroms (x10)
+#             xyz = np.mean(traj.xyz[:, atom_indices, :],axis=1) * 10 # shape (T, 3)  frames by residue i's position (mean pos of atoms) 
+#             residuecoords.append(xyz)
+
+#     X = np.stack(residuecoords, axis=2) # shape (T, 3, n_residues) 
+#     T, _, N = X.shape  # T: time frames, 3: coordinates, N: residues
+#     X_full = X.reshape((T,3*N))    # shape (T, 3 * num_residues)
+
+#     X_mean = np.mean(X_full, axis=0)
+#     X_centered = X_full - X_mean
+    
+#     covariance_full = X_centered.T @ X_centered / (T-1)
+#     return torch.from_numpy(covariance_full)
 
 
 def compute_residue_correlations(full_cov, mode="trace"):  # using trace or fro based correlation. Also, should probably run after alignment
