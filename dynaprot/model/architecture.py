@@ -80,7 +80,7 @@ class DynaProt(LightningModule):
     
     def pred_covars(self, residue_features, lambda_min=0.5, lambda_max=10, soft_clip=True):
         """
-        Predict covariance matrices (by predicting cholesky factor) and apply eigenvalue clipping.
+        Predict covariance matrices (by predicting cholesky factor).
 
         Args:
             residue_features (torch.Tensor): Input residue features of shape (batch_size, num_residues, feature_dim).
@@ -105,31 +105,6 @@ class DynaProt(LightningModule):
                     L[:, :, r, c] = L_entries[:, :, i]
                 i += 1
         covars = L @ L.transpose(-1, -2)
-        # Compute covariance matrices Σ = LL^T + εI
-        # covars = L @ L.transpose(-1, -2) + self.epsilon * torch.eye(3, device=L.device)
-
-        # Perform eigenvalue decomposition
-        # eigenvalues, eigenvectors = torch.linalg.eigh(covars)  # Shape: (batch_size, num_residues, 3), (batch_size, num_residues, 3, 3)
-
-
-        # Apply soft or hard clipping
-        # if soft_clip:
-        #     eigenvalues_clipped = torch.where(
-        #         eigenvalues > lambda_max,
-        #         lambda_max + torch.log(1 + eigenvalues - lambda_max),
-        #         torch.where(
-        #             eigenvalues < lambda_min,
-        #             lambda_min - torch.log(1 + lambda_min - eigenvalues),
-        #             eigenvalues,
-        #         ),
-        #     )
-        # else:
-        #     eigenvalues_clipped = torch.clamp(eigenvalues, min=lambda_min, max=lambda_max)
-
-        # # Reconstruct covariance matrices with clipped eigenvalues
-        # covars = (
-        #     eigenvectors @ torch.diag_embed(eigenvalues_clipped) @ eigenvectors.transpose(-1, -2)
-        # )
         return covars
     
     
