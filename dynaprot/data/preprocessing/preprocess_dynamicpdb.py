@@ -24,10 +24,10 @@ def extract_combine_one_protein(prot):
     Returns:
         str: Path to the final merged DCD file, or None if no DCD files were found.
     """
+    prot_path = os.path.join(raw_path, prot)
+    output_prot_dir = os.path.join(out_path, prot) 
+    os.makedirs(output_prot_dir, exist_ok=True)
     try:
-        prot_path = os.path.join(raw_path, prot)
-        output_prot_dir = os.path.join(out_path, prot) 
-        os.makedirs(output_prot_dir, exist_ok=True)
 
         # # Step 1: Merge split-volume .tar.gz files
         tar_parts = sorted(glob.glob(os.path.join(prot_path, f"{prot}.tar.gz.part*")))
@@ -51,6 +51,7 @@ def extract_combine_one_protein(prot):
         os.remove(tar_gz_path)  
         return prot
     except:
+        os.rmdir(output_prot_dir)
         return None
 
 with multiprocessing.Pool(10) as pool:
