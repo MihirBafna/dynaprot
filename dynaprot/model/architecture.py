@@ -194,6 +194,11 @@ class DynaProt(LightningModule):
         # self.log_dict({"train_losses/total_loss":total_loss})
         if self.logger is not None:
             self.logger.experiment["train_losses/total_loss"].append(total_loss)
+            
+        optimizer = self.optimizers()
+        current_lr = optimizer.param_groups[0]['lr']
+        if batch_idx % 50 == 0:  # Log every 50 steps
+            self.logger.experiment["train/learning_rate"].append(current_lr)
         return dict(loss=total_loss,covars=preds["covars"].detach())
 
 
