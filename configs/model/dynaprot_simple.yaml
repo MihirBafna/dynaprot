@@ -10,6 +10,8 @@ train_params:
   batch_size: 20
   epochs: 10000
   learning_rate: 0.0001
+  warmup_steps: 20000
+  total_steps: 200000
   grad_clip_norm: 1.0
   accelerator: "gpu"
   strategy: "ddp"
