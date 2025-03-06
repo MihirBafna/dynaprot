@@ -84,11 +84,19 @@ out_path = "/data/cb/mihirb14/projects/dynamicPDB"
 # proteins = [file for file in os.listdir(raw_path) if os.path.isdir(os.path.join(raw_path, file))]
 
 df = pd.read_csv(os.path.join(raw_path, "PDBList.csv"))
-proteins = df.iloc[:, 0].astype(str).tolist()[:5]  # 
+proteins = df.iloc[:, 0].astype(str).tolist()  # 
 
 # Log file paths
 completed_log = os.path.join(out_path, "completed_proteins.txt")
 failed_log = os.path.join(out_path, "failed_proteins.txt")
+
+def check_files_exist(directory, prot):
+    pdb_files = glob.glob(os.path.join(directory, "**", f"*{prot}.pdb"), recursive=True)
+    dcd_files = glob.glob(os.path.join(directory, "**", f"*{prot}_T.dcd"), recursive=True)
+    # print(pdb_files)
+    # print(dcd_files)
+    return bool(pdb_files) and bool(dcd_files) 
+    
 
 def extract_combine_one_protein(prot):
     """
@@ -105,38 +113,37 @@ def extract_combine_one_protein(prot):
     output_prot_dir = os.path.join(out_path, prot)  
     os.makedirs(output_prot_dir, exist_ok=True)
 
-    relative_pdb_path = f"simulate/raw/{prot}_npt100000.0_ts0.001/{prot}.pdb"
-    relative_dcd_path = f"simulate/raw/{prot}_npt100000.0_ts0.001/{prot}_T.dcd"
+    # relative_pdb_path = f"simulate/raw/{prot}_npt100000.0_ts0.001/{prot}.pdb"
+    # relative_dcd_path = f"simulate/raw/{prot}_npt100000.0_ts0.001/{prot}_T.dcd"
     tar_gz_path = os.path.join(prot_path, f"{prot}.tar.gz")
 
     # if extracted files already exist.
-    if os.path.exists(os.path.join(output_prot_dir,relative_dcd_path)) and os.path.exists(os.path.join(output_prot_dir,relative_pdb_path)):
+    if check_files_exist(output_prot_dir,prot):
+        print(f"already processed {prot} ... returning")
         with open(completed_log, "a") as f:
             f.write(prot + "\n")
         return prot
 
     try:
         # Step 1: Run `git lfs pull` for the specific protein
-        if not os.path.exists(tar_gz_path):
-            print(f"git lfs pull {prot}")
-            subprocess.run(["git", "lfs", "pull", "--include", f"{prot}/*"], cwd=raw_path, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        # if not os.path.exists(tar_gz_path):
+        #     print(f"git lfs pull {prot}")
+        #     subprocess.run(["git", "lfs", "pull", "--include", f"{prot}/*"], cwd=raw_path, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
-            # Step 2: Merge split-volume .tar.gz files
-            tar_parts = sorted(glob.glob(os.path.join(prot_path, f"{prot}.tar.gz.part*")))
-            print(f"cat separate .tar.gz {prot} into {tar_gz_path}")
-            if tar_parts:
-                subprocess.run(f"cat {' '.join(tar_parts)} > {tar_gz_path}", shell=True, check=True)
-                # for part in tar_parts:
-                #     os.remove(part)
+        #     # Step 2: Merge split-volume .tar.gz files
+        #     tar_parts = sorted(glob.glob(os.path.join(prot_path, f"{prot}.tar.gz.part*")))
+        #     print(f"cat separate .tar.gz {prot} into {tar_gz_path}")
+        #     if tar_parts:
+        #         subprocess.run(f"cat {' '.join(tar_parts)} > {tar_gz_path}", shell=True, check=True)
+        #         # for part in tar_parts:
+        #         #     os.remove(part)
 
         # Step 3: Extract the .tar.gz archive
         print(f"extracting {prot} dcd and pdb files")
         subprocess.run([
-            "tar", "-zxvf", tar_gz_path, "-C", output_prot_dir,
-            f"{prot}_npt100000.0_ts0.001/{prot}.pdb",
-            f"{prot}_npt100000.0_ts0.001/{prot}_T.dcd",
-            relative_pdb_path,
-            relative_dcd_path
+        "tar", "-xzvf", tar_gz_path, "--wildcards", "-C", output_prot_dir,
+            f"*{prot}.pdb", 
+            f"*{prot}_T.dcd"
         ], check=True)
 
         # Step 4: Remove the tar.gz file after extraction to save space
@@ -152,13 +159,16 @@ def extract_combine_one_protein(prot):
         # Log failure
         with open(failed_log, "a") as f:
             f.write(prot + "\n")
-        os.rmdir(output_prot_dir)
+        # os.rmdir(output_prot_dir)
         # shutil.rmtree(output_prot_dir, ignore_errors=True)  # Remove partially extracted files
         return None
 
 # Parallel execution with `rich` progress bar
 def parallel_extract():
-    num_workers = min(10, multiprocessing.cpu_count())  # Limit parallel extractions
+    import time
+    start = time.time()
+    num_workers = min(50, multiprocessing.cpu_count())  # Limit parallel extractions
+    print(multiprocessing.cpu_count())
     completed = []
     failed = []
 
@@ -179,7 +189,8 @@ def parallel_extract():
                 else:
                     failed.append(result)
 
-    print(f"Completed {len(completed)} proteins.")
+    tim = (time.time() - start)/3600
+    print(f"Completed {len(completed)} proteins in {tim:.2f} hours")
     print(f"Failed {len(failed)} proteins. Check logs for details.")
 
     # Save results as numpy arrays
@@ -188,7 +199,8 @@ def parallel_extract():
 
 if __name__ == "__main__":
     # print(proteins)
-    # parallel_extract()
-    extract_combine_one_protein("1aol_A")
+    parallel_extract()
+    # check_files_exist(os.path.join(out_path,"1aol_A"),"1aol_A")
+    # extract_combine_one_protein("1aol_A")
     # extract_combine_one_protein("2j6a_A")
     
