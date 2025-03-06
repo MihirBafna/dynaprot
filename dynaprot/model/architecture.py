@@ -8,6 +8,7 @@ from dynaprot.model.operators.invariant_point_attention import IPABlock
 from openfold.utils.rigid_utils import  Rigid
 from dynaprot.model.loss import DynaProtLoss
 from torch.nn.utils import clip_grad_norm_
+from torch.optim.lr_scheduler import SequentialLR, LinearLR, CosineAnnealingLR
 
 
 class DynaProt(LightningModule):
@@ -18,6 +19,8 @@ class DynaProt(LightningModule):
         self.num_ipa_blocks = cfg["model_params"]["num_ipa_blocks"]
         self.d_model = cfg["model_params"]["d_model"]
         self.lr = cfg["train_params"]["learning_rate"]
+        self.warmup_steps = cfg["train_params"]["warmup_steps"]
+        self.total_steps = cfg["train_params"]["total_steps"]
 
         # Embedding layers for sequence and pairwise features
         self.sequence_embedding = nn.Embedding(21, self.d_model)  # 21 amino acid types
@@ -41,9 +44,19 @@ class DynaProt(LightningModule):
         
         
     def configure_optimizers(self):
-        # AdamW optimizer
         optimizer = optim.AdamW(self.parameters(), lr=self.lr, weight_decay=1e-5)
-        return optimizer
+        
+        warmup_steps = self.warmup_steps
+        total_steps = self.total_steps 
+        cosine_steps = total_steps - warmup_steps
+        
+        warmup_scheduler = LinearLR(optimizer, start_factor=1e-3, end_factor=1.0, total_iters=warmup_steps)
+        cosine_scheduler = CosineAnnealingLR(optimizer, T_max=cosine_steps)
+        
+        scheduler = SequentialLR(optimizer, schedulers=[warmup_scheduler, cosine_scheduler], milestones=[warmup_steps])
+
+        return {"optimizer": optimizer, "lr_scheduler": scheduler, "monitor": "val_loss"}
+
 
 
     def forward(self, sequence, frames, mask):  # what to do with mask at inference?
