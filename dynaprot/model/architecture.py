@@ -55,8 +55,10 @@ class DynaProt(LightningModule):
         
         scheduler = SequentialLR(optimizer, schedulers=[warmup_scheduler, cosine_scheduler], milestones=[warmup_steps])
 
-        return {"optimizer": optimizer, "lr_scheduler": scheduler, "interval": "step"}
-
+        return {
+                "optimizer": optimizer,
+                "lr_scheduler": {"scheduler": scheduler, "interval": "step"},
+            }
 
 
     def forward(self, sequence, frames, mask):  # what to do with mask at inference?
