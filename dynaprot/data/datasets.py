@@ -22,6 +22,7 @@ class DynaProtDataset(Dataset):
             self.protein_list = np.load(path)
         # self.protein_list = [prot for prot in os.listdir(self.data_dir) if os.path.isdir(os.path.join(self.data_dir, prot))]  # dynamics dataset protein list
         self.replicates = cfg["replicates"]
+        self.augmented = cfg["augmented"]
 
     def __len__(self):
         return len(self.protein_list)
@@ -30,6 +31,13 @@ class DynaProtDataset(Dataset):
         protein_id = self.protein_list[idx]
         replicate_num = random.choice(self.replicates) if self.split == "train" else 1
         prot_feat_dict = torch.load(os.path.join(self.data_dir,protein_id,f"{protein_id}_rep{replicate_num}.pt"))
+        
+        if self.augmented:  # data augmentation (taking input struc as random frame in md trajectory)
+            additional_frames = os.listdir(os.path.join(self.data_dir,protein_id,"frames"))
+            chosen = os.path.join(self.data_dir,protein_id,"frames",random.choice(additional_frames))
+            # print(chosen)
+            prot_feat_dict["frames"] = torch.load(chosen)["frames"]
+            
         prot_feat_dict["aatype"] = torch.eye(21)[prot_feat_dict["aatype"]]
         prot_feat_dict["resi_pad_mask"] = torch.ones(prot_feat_dict["aatype"].shape[0])   
         # del prot_feat_dict["dynamics_fullcovar"], prot_feat_dict["dynamics_correlations"] # temporary ignoring full covar
