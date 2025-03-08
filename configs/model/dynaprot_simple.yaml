@@ -35,8 +35,8 @@ eval_params:
       affine_invariant_dist: 0.0
       bures_dist: 1.0
     resi_correlations:
-      mse: 1.0
-      bures_dist: null
+      mse: 0.0
+      bures_dist: 1.0
     resi_rmsf: null
     resi_rmsd: null
     resi_rg: null
