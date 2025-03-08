@@ -45,7 +45,7 @@ class DynaProt(LightningModule):
         
     def configure_optimizers(self):
         optimizer = optim.AdamW(self.parameters(), lr=self.lr, weight_decay=1e-5)
-        
+        return optimizer
         warmup_steps = self.warmup_steps
         total_steps = self.total_steps 
         cosine_steps = total_steps - warmup_steps
