@@ -32,7 +32,7 @@ class DynaProtDataset(Dataset):
         replicate_num = random.choice(self.replicates) if self.split == "train" else 1
         prot_feat_dict = torch.load(os.path.join(self.data_dir,protein_id,f"{protein_id}_rep{replicate_num}.pt"))
         
-        if self.augmented:  # data augmentation (taking input struc as random frame in md trajectory)
+        if self.augmented and self.split == "train":  # data augmentation (taking input struc as random frame in md trajectory)
             additional_frames = os.listdir(os.path.join(self.data_dir,protein_id,"frames"))
             chosen = os.path.join(self.data_dir,protein_id,"frames",random.choice(additional_frames))
             # print(chosen)
