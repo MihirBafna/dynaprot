@@ -27,9 +27,9 @@ class DynaProtLoss(torch.nn.Module):
         mask = batch["resi_pad_mask"].bool()
         squaremask = batch["resi_pad_mask"].unsqueeze(1) * batch["resi_pad_mask"].unsqueeze(2) 
 
-        # true_means = batch["dynamics_means"].float()[mask]
-        # true_covars = batch["dynamics_covars"].float()[mask]
-        # predicted_covars =  preds["covars"][mask]
+        true_means = batch["dynamics_means"].float()[mask]
+        true_covars = batch["dynamics_covars"].float()[mask]
+        predicted_covars =  preds["covars"][mask]
         true_corrs = batch["dynamics_correlations"].float() * squaremask
         predicted_corrs =  preds["corrs"]
         
@@ -38,14 +38,14 @@ class DynaProtLoss(torch.nn.Module):
         loss_dict = dict(
             resi_gaussians=dict(
                 # mse_means=F.mse_loss(predicted_means, true_means) if loss_weights["resi_gaussians"]["mse_means"] is not None else None,
-                # mse_covs=F.mse_loss(predicted_covars, true_covars) if loss_weights["resi_gaussians"]["mse_covs"] is not None else None,
-                # kldiv=metrics.kl_divergence_mvn(true_means, predicted_covars, true_means, true_covars) if loss_weights["resi_gaussians"]["kldiv"] is not None else None,
-                # # kldiv=metrics.symmetric_kl(true_means, predicted_covars, true_means, true_covars) if loss_weights["resi_gaussians"]["kldiv"] is not None else None,
-                # # eigen_penalty = metrics.eigenvalue_penalty(predicted_covars) if loss_weights["resi_gaussians"]["eigen_penalty"] is not None else None,
-                # frob_norm=metrics.frobenius_norm(predicted_covars - true_covars)/metrics.frobenius_norm(true_covars) if loss_weights["resi_gaussians"]["frob_norm"] is not None else None,
-                # log_frob_norm = metrics.log_frobenius_norm(predicted_covars, true_covars) if loss_weights["resi_gaussians"]["log_frob_norm"] is not None else None,
-                # affine_invariant_dist = metrics.affine_invariant_distance(predicted_covars, true_covars) if loss_weights["resi_gaussians"]["affine_invariant_dist"] is not None else None,
-                # bures_dist = metrics.bures_distance(predicted_covars, true_covars) if loss_weights["resi_gaussians"]["bures_dist"] is not None else None,
+                mse_covs=F.mse_loss(predicted_covars, true_covars) if loss_weights["resi_gaussians"]["mse_covs"] is not None else None,
+                kldiv=metrics.kl_divergence_mvn(true_means, predicted_covars, true_means, true_covars) if loss_weights["resi_gaussians"]["kldiv"] is not None else None,
+                # kldiv=metrics.symmetric_kl(true_means, predicted_covars, true_means, true_covars) if loss_weights["resi_gaussians"]["kldiv"] is not None else None,
+                # eigen_penalty = metrics.eigenvalue_penalty(predicted_covars) if loss_weights["resi_gaussians"]["eigen_penalty"] is not None else None,
+                frob_norm=metrics.frobenius_norm(predicted_covars - true_covars)/metrics.frobenius_norm(true_covars) if loss_weights["resi_gaussians"]["frob_norm"] is not None else None,
+                log_frob_norm = metrics.log_frobenius_norm(predicted_covars, true_covars) if loss_weights["resi_gaussians"]["log_frob_norm"] is not None else None,
+                affine_invariant_dist = metrics.affine_invariant_distance(predicted_covars, true_covars) if loss_weights["resi_gaussians"]["affine_invariant_dist"] is not None else None,
+                bures_dist = metrics.bures_distance(predicted_covars, true_covars) if loss_weights["resi_gaussians"]["bures_dist"] is not None else None,
             ),
             resi_correlations=dict(
                 mse=F.mse_loss(predicted_corrs, true_corrs) if loss_weights["resi_correlations"]["mse"] is not None else None,

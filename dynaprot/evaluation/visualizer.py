@@ -78,6 +78,7 @@ def plot_3d_gaussian_ellipsoids(means, covariances, num_points=50, save_path="./
         margin=dict(l=0, r=0, b=0, t=0),
         title="3D Gaussian Ellipsoids with PDF Gradient"
     )
+    return fig
     fig.write_html(save_path)
 
 
@@ -129,9 +130,9 @@ def plot_3d_gaussian_comparison(means, ground_truth_cov, predicted_cov, num_poin
         margin=dict(l=0, r=0, b=0, t=0),
         title="3D Gaussian Ellipsoids Comparison"
     )
-    fig.write_html(save_path)
+    return fig
 
-    fig.write_html(save_path)
+    # fig.write_html(save_path)
     print(f"3D Gaussian comparison plot saved to {save_path}")
 
 # plot_3d_gaussian_ellipsoids(means.numpy()[:20], covars.numpy()[:20], num_points=50)

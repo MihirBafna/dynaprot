@@ -4,9 +4,11 @@ import torch.optim as optim
 from pytorch_lightning import LightningModule
 import torch.nn.functional as F
 from openfold.model.structure_module import InvariantPointAttention
+from dynaprot.model.operators.invariant_point_attention import IPABlock
 from openfold.utils.rigid_utils import  Rigid
 from dynaprot.model.loss import DynaProtLoss
 from torch.nn.utils import clip_grad_norm_
+from torch.optim.lr_scheduler import SequentialLR, LinearLR, CosineAnnealingLR
 
 
 class DynaProt(LightningModule):
@@ -17,7 +19,8 @@ class DynaProt(LightningModule):
         self.num_ipa_blocks = cfg["model_params"]["num_ipa_blocks"]
         self.d_model = cfg["model_params"]["d_model"]
         self.lr = cfg["train_params"]["learning_rate"]
-        # self.beta = beta  # Weighting factor for variance loss
+        self.warmup_steps = cfg["train_params"]["warmup_steps"]
+        self.total_steps = cfg["train_params"]["total_steps"]
 
         # Embedding layers for sequence and pairwise features
         self.sequence_embedding = nn.Embedding(21, self.d_model)  # 21 amino acid types
@@ -25,13 +28,11 @@ class DynaProt(LightningModule):
 
         # IPA layers
         self.ipa_blocks = nn.ModuleList([InvariantPointAttention(c_s=self.d_model,c_z=self.d_model,c_hidden=16,no_heads=4,no_qk_points=4,no_v_points=8) for _ in range(self.num_ipa_blocks)])
+        # self.ipa_blocks = nn.ModuleList([IPABlock(dim=self.d_model, post_attn_dropout=0.2,post_ff_dropout=0.2, heads=4, point_key_dim = 4, point_value_dim = 8,require_pairwise_repr=False, post_norm=True) for _ in range(self.num_ipa_blocks)])
 
-        # self.layer_norm = nn.LayerNorm(self.d_model)
         self.dropout = nn.Dropout(0.2)
-        
-        # Dense layers for predicting means and variances
-        # self.mean_predictor = nn.Linear(self.d_model, 3)  # Predict (x, y, z) mean
-        # self.covars_predictor = nn.Linear(self.d_model, 6)  # Predict lower diagonal matrix L (cholesky decomposition) to ensure symmetric psd Σ = LL^T
+
+        self.covars_predictor = nn.Linear(self.d_model, 6)  # Predict lower diagonal matrix L (cholesky decomposition) to ensure symmetric psd Σ = LL^T
         
         self.corr_projection = nn.Linear(self.d_model, self.d_model) 
         # self.global_corr_predictor =
@@ -44,9 +45,21 @@ class DynaProt(LightningModule):
         
         
     def configure_optimizers(self):
-        # AdamW optimizer
-        optimizer = optim.AdamW(self.parameters(), lr=self.lr)
+        optimizer = optim.AdamW(self.parameters(), lr=self.lr, weight_decay=1e-5)
         return optimizer
+        warmup_steps = self.warmup_steps
+        total_steps = self.total_steps 
+        cosine_steps = total_steps - warmup_steps
+        
+        warmup_scheduler = LinearLR(optimizer, start_factor=1e-3, end_factor=1.0, total_iters=warmup_steps)
+        cosine_scheduler = CosineAnnealingLR(optimizer, T_max=cosine_steps)
+        
+        scheduler = SequentialLR(optimizer, schedulers=[warmup_scheduler, cosine_scheduler], milestones=[warmup_steps])
+
+        return {
+                "optimizer": optimizer,
+                "lr_scheduler": {"scheduler": scheduler, "interval": "step"},
+            }
 
 
     def forward(self, sequence, frames, mask):  # what to do with mask at inference?
@@ -60,15 +73,14 @@ class DynaProt(LightningModule):
 
         # IPA blocks
         for ipa_block in self.ipa_blocks:
+            # residue_features = ipa_block(x=residue_features, rotations=frames.get_rots().get_rot_mats(),translations=frames.get_trans(), mask=mask.bool())
             residue_features = ipa_block(residue_features, pairwise_embeddings, frames, mask)
-
-        residue_features = self.dropout(residue_features)
-        # residue_features = self.layer_norm(residue_features)
+            residue_features = self.dropout(residue_features)
 
         
         preds = dict(
             # means = self.pred_mean(residue_features),      # Shape: (batch_size, num_residues, 3)
-            # covars = self.pred_covars(residue_features),    # Shape: (batch_size, num_residues, 3, 3)
+            covars = self.pred_covars(residue_features),    # Shape: (batch_size, num_residues, 3, 3)
             corrs = self.pred_corrs(residue_features)
         )
 
@@ -86,7 +98,7 @@ class DynaProt(LightningModule):
     
     def pred_covars(self, residue_features, lambda_min=0.5, lambda_max=10, soft_clip=True):
         """
-        Predict covariance matrices (by predicting cholesky factor) and apply eigenvalue clipping.
+        Predict covariance matrices (by predicting cholesky factor).
 
         Args:
             residue_features (torch.Tensor): Input residue features of shape (batch_size, num_residues, feature_dim).
@@ -111,31 +123,6 @@ class DynaProt(LightningModule):
                     L[:, :, r, c] = L_entries[:, :, i]
                 i += 1
         covars = L @ L.transpose(-1, -2)
-        # Compute covariance matrices Σ = LL^T + εI
-        # covars = L @ L.transpose(-1, -2) + self.epsilon * torch.eye(3, device=L.device)
-
-        # Perform eigenvalue decomposition
-        # eigenvalues, eigenvectors = torch.linalg.eigh(covars)  # Shape: (batch_size, num_residues, 3), (batch_size, num_residues, 3, 3)
-
-
-        # Apply soft or hard clipping
-        # if soft_clip:
-        #     eigenvalues_clipped = torch.where(
-        #         eigenvalues > lambda_max,
-        #         lambda_max + torch.log(1 + eigenvalues - lambda_max),
-        #         torch.where(
-        #             eigenvalues < lambda_min,
-        #             lambda_min - torch.log(1 + lambda_min - eigenvalues),
-        #             eigenvalues,
-        #         ),
-        #     )
-        # else:
-        #     eigenvalues_clipped = torch.clamp(eigenvalues, min=lambda_min, max=lambda_max)
-
-        # # Reconstruct covariance matrices with clipped eigenvalues
-        # covars = (
-        #     eigenvectors @ torch.diag_embed(eigenvalues_clipped) @ eigenvectors.transpose(-1, -2)
-        # )
         return covars
     
     
@@ -218,7 +205,12 @@ class DynaProt(LightningModule):
         # self.log_dict({"train_losses/total_loss":total_loss})
         if self.logger is not None:
             self.logger.experiment["train_losses/total_loss"].append(total_loss)
-        return dict(loss=total_loss,covars=preds["corrs"].detach())
+            
+        optimizer = self.optimizers()
+        current_lr = optimizer.param_groups[0]['lr']
+        self.logger.experiment["train/learning_rate"].append(current_lr)
+        
+        return dict(loss=total_loss,covars=preds["covars"].detach(),corrs=preds["corrs"].detach())
 
 
     def validation_step(self, batch, batch_idx):
@@ -236,4 +228,4 @@ class DynaProt(LightningModule):
         # self.log_dict({"train_losses/total_loss":total_loss})
         if self.logger is not None:
             self.logger.experiment["val_losses/total_loss"].append(total_loss)
-        return dict(loss=total_loss,covars=preds["corrs"].detach())
+        return dict(loss=total_loss)

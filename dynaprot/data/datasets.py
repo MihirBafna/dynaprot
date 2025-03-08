@@ -5,6 +5,7 @@ from openfold.data import data_transforms, feature_pipeline
 from openfold.np.protein import from_pdb_string, Protein
 import numpy as np
 import pandas as pd
+import random
 from dynaprot.data.transforms import make_fixed_size
 from dynaprot.data.utils import dict_multimap
 
@@ -20,16 +21,26 @@ class DynaProtDataset(Dataset):
             path = cfg["protein_chains_path"][:-4] + f"_{self.split}.npy"
             self.protein_list = np.load(path)
         # self.protein_list = [prot for prot in os.listdir(self.data_dir) if os.path.isdir(os.path.join(self.data_dir, prot))]  # dynamics dataset protein list
+        self.replicates = cfg["replicates"]
+        self.augmented = cfg["augmented"]
 
     def __len__(self):
         return len(self.protein_list)
 
     def __getitem__(self, idx):
         protein_id = self.protein_list[idx]
-        prot_feat_dict = torch.load(os.path.join(self.data_dir,protein_id,f"{protein_id}.pt"))
+        replicate_num = random.choice(self.replicates) if self.split == "train" else 1
+        prot_feat_dict = torch.load(os.path.join(self.data_dir,protein_id,f"{protein_id}_rep{replicate_num}.pt"))
+        
+        if self.augmented and self.split == "train":  # data augmentation (taking input struc as random frame in md trajectory)
+            additional_frames = os.listdir(os.path.join(self.data_dir,protein_id,"frames"))
+            chosen = os.path.join(self.data_dir,protein_id,"frames",random.choice(additional_frames))
+            # print(chosen)
+            prot_feat_dict["frames"] = torch.load(chosen)["frames"]
+            
         prot_feat_dict["aatype"] = torch.eye(21)[prot_feat_dict["aatype"]]
         prot_feat_dict["resi_pad_mask"] = torch.ones(prot_feat_dict["aatype"].shape[0])   
-        del prot_feat_dict["dynamics_fullcovar"] # temporary ignoring full covar
+        # del prot_feat_dict["dynamics_fullcovar"], prot_feat_dict["dynamics_correlations"] # temporary ignoring full covar
         shape_schema = {}
         
         # for k in prot_feat_dict.keys():
@@ -38,7 +49,7 @@ class DynaProtDataset(Dataset):
         for k in prot_feat_dict.keys():
             schema = list(prot_feat_dict[k].size())
             schema[0] = "NUM_RES"   # to be infilled by padding function
-            if k == "dynamics_fullcovar" or k == "dynamics_correlations":       # Todo: change this to be better (search for anything with num_res and replace it)
+            if k =="dynamics_fullcovar" or k == "dynamics_correlations": # make better this is basically j hardcoded
                 schema[1] = "NUM_RES"
             shape_schema[k] = schema
 
