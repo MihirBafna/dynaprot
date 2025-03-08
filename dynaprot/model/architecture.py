@@ -32,11 +32,10 @@ class DynaProt(LightningModule):
 
         self.dropout = nn.Dropout(0.2)
 
-        self.covars_predictor = nn.Linear(self.d_model, 6)  # Predict lower diagonal matrix L (cholesky decomposition) to ensure symmetric psd Σ = LL^T
+        self.covars_predictor = nn.Linear(self.d_model, 6)  # should i use mlp here or j one layer # Predict lower diagonal matrix L (cholesky decomposition) to ensure symmetric psd Σ = LL^T
         
         self.corr_projection = nn.Linear(self.d_model, self.d_model) 
-        # self.global_corr_predictor =
-        
+                  
         # for stability
         self.epsilon = 1e-6      # regularization to ensure Σ is positive definite and other stability issues
         
@@ -79,9 +78,9 @@ class DynaProt(LightningModule):
 
         
         preds = dict(
-            # means = self.pred_mean(residue_features),      # Shape: (batch_size, num_residues, 3)
-            covars = self.pred_covars(residue_features),    # Shape: (batch_size, num_residues, 3, 3)
-            corrs = self.pred_corrs(residue_features)
+            # means = self.pred_mean(residue_features),      # (batch_size, num_residues, 3)
+            covars = self.pred_covars(residue_features),    # (batch_size, num_residues, 3, 3)
+            corrs = self.pred_corrs(residue_features)       # (batch_size, num_residues, num_residues)
         )
 
         return preds
@@ -178,11 +177,19 @@ class DynaProt(LightningModule):
     #     return covars
 
     
+    # def pred_corrs(self, residue_features):
+    #     projection = self.corr_projection(residue_features)
+    #     C = F.sigmoid(torch.einsum("bni,bmj->bnm", projection, projection))  # Outer product
+    #     return C
+    
     def pred_corrs(self, residue_features):
-        projection = self.corr_projection(residue_features)
-        C = F.sigmoid(torch.einsum("bni,bmj->bnm", projection, projection))  # Outer product
-        return C
-
+        L= self.corr_projection(residue_features)      
+        covars = L @ L.transpose(-1, -2)   # (b,n,n)
+        variances = torch.diagonal(covars, dim1=-2, dim2=-1)  # (b, n)
+        sd = torch.sqrt(variances).unsqueeze(-1) # (b, n, 1)
+        corrs = covars/(sd @ sd.transpose(-1,-2))
+        return corrs
+    
     
     def on_before_optimizer_step(self, optimizer):
         parameters = self.parameters()

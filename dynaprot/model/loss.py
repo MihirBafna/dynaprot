@@ -32,6 +32,9 @@ class DynaProtLoss(torch.nn.Module):
         predicted_covars =  preds["covars"][mask]
         true_corrs = batch["dynamics_correlations"].float() * squaremask
         predicted_corrs =  preds["corrs"]
+        print(true_corrs[0])
+        print(squaremask[0])
+        print(squaremask.shape)
         
         loss_weights = self.cfg["eval_params"]["loss_weights"]
 
