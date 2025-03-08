@@ -210,7 +210,7 @@ class DynaProt(LightningModule):
         current_lr = optimizer.param_groups[0]['lr']
         self.logger.experiment["train/learning_rate"].append(current_lr)
         
-        return dict(loss=total_loss,covars=preds["covars"].detach(),corrs=preds["corrs"].detach())
+        return total_loss
 
 
     def validation_step(self, batch, batch_idx):
@@ -228,4 +228,4 @@ class DynaProt(LightningModule):
         # self.log_dict({"train_losses/total_loss":total_loss})
         if self.logger is not None:
             self.logger.experiment["val_losses/total_loss"].append(total_loss)
-        return dict(loss=total_loss)
+        return total_loss
