@@ -123,6 +123,37 @@ class DynaProt(LightningModule):
         return covars
     
     
+    def pred_covars_direct(self, residue_features, lambda_min=0.5, lambda_max=10, soft_clip=True):
+        """
+        Predict covariance matrices directly.
+
+        Args:
+            residue_features (torch.Tensor): Input residue features of shape (batch_size, num_residues, feature_dim).
+            lambda_min (float): Minimum eigenvalue for clipping.
+            lambda_max (float): Maximum eigenvalue for clipping.
+
+        Returns:
+            torch.Tensor: Stabilized covariance matrices of shape (batch_size, num_residues, 3, 3).
+        """
+        
+        covar_entries = self.covars_predictor(residue_features) # Predict the 6 L entries
+
+        covars = torch.zeros(
+            residue_features.shape[0], self.num_residues, 3, 3, device=covar_entries.device
+        )
+        i = 0
+        for c in range(3):
+            for r in range(c, 3):
+                if r == c:
+                    covars[:, :, r, c] = F.softplus(covar_entries[:, :, i])  # Ensure positive variances
+                else:
+                    covars[:, :, r, c] = covar_entries[:, :, i]
+                    covars[:, :, c, r] = covar_entries[:, :, i]      # preserve symmetry
+
+                i += 1
+        return covars
+    
+    
     # def pred_covars(self, residue_features, lambda_min=0.5, lambda_max=10, soft_clip=False):
     #     """
     #     Predict covariance matrices and apply eigenvalue clipping.
@@ -180,43 +211,48 @@ class DynaProt(LightningModule):
         clip_grad_norm_(parameters, self.cfg["train_params"]["grad_clip_norm"])
         
     
+    
     def training_step(self, batch, batch_idx):
         
         preds = self(batch["aatype"].argmax(dim=-1), Rigid.from_tensor_4x4(batch["frames"]), batch["resi_pad_mask"])
 
         total_loss, loss_dict = self.loss(preds, batch)
         
+        # if self.trainer.is_global_zero:
         for dynamics_type, losses in loss_dict.items():
             for loss_name, loss_value in losses.items():
-                log_key = f"train_losses/{dynamics_type}/{loss_name}"
-                # self.log_dict({log_key:loss_value})
-                if self.logger is not None:
-                    self.logger.experiment[log_key].append(loss_value)
+                log_key = f"{dynamics_type}/{loss_name}"
+                self.log(log_key,loss_value,on_epoch=False,on_step=True, sync_dist=True)
+                # if self.logger is not None:
+                # self.logger.experiment[log_key].append(loss_value, step=self.global_step)
         # Log the loss and return
         # self.log_dict({"train_losses/total_loss":total_loss})
-        if self.logger is not None:
-            self.logger.experiment["train_losses/total_loss"].append(total_loss)
-            
+        # if self.logger is not None:
+        # self.logger.experiment["train_losses/total_loss"].append(total_loss, step=self.global_step)
+        self.log("total_loss",total_loss,on_epoch=False,on_step=True, sync_dist=True)
+        
         optimizer = self.optimizers()
         current_lr = optimizer.param_groups[0]['lr']
-        self.logger.experiment["train/learning_rate"].append(current_lr)
-        
-        return dict(loss=total_loss,covars=preds["covars"].detach())
+        self.log("learning_rate",current_lr,on_epoch=False,on_step=True, sync_dist=True)
+        # self.logger.experiment["train/learning_rate"].append(current_lr, step=self.global_step)
+    
+        return total_loss
 
 
     def validation_step(self, batch, batch_idx):
         preds = self(batch["aatype"].argmax(dim=-1), Rigid.from_tensor_4x4(batch["frames"]), batch["resi_pad_mask"])
 
         total_loss, loss_dict = self.loss(preds, batch)
-        
         for dynamics_type, losses in loss_dict.items():
             for loss_name, loss_value in losses.items():
-                log_key = f"val_losses/{dynamics_type}/{loss_name}"
+                log_key = f"validation/{dynamics_type}/{loss_name}"
+                self.log(log_key,loss_value,on_epoch=True,on_step=False,sync_dist=True)
                 # self.log_dict({log_key:loss_value})
-                if self.logger is not None:
-                    self.logger.experiment[log_key].append(loss_value)
+                # if self.logger is not None:
+                # self.logger.experiment[log_key].append(loss_value, step=self.global_step)
         # Log the loss and return
         # self.log_dict({"train_losses/total_loss":total_loss})
-        if self.logger is not None:
-            self.logger.experiment["val_losses/total_loss"].append(total_loss)
-        return dict(loss=total_loss,covars=preds["covars"].detach())
+        # if self.logger is not None:
+        # self.logger.experiment["val_losses/total_loss"].append(total_loss, step=self.global_step)
+        self.log("validation/total_loss",total_loss,on_epoch=True,on_step=False,sync_dist=True)
+        return total_loss
