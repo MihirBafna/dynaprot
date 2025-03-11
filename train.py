@@ -51,7 +51,7 @@ def main():
     
     val_dataloader = torch.utils.data.DataLoader(
         val_dataset,
-        batch_size=model_config["train_params"]["batch_size"],
+        batch_size=1,
         collate_fn=OpenFoldBatchCollator(),
         num_workers=12,
         shuffle=False,
@@ -101,7 +101,7 @@ def main():
         devices=model_config["train_params"]["num_devices"],
         num_nodes=model_config["train_params"].get("num_nodes",1),
         precision=model_config["train_params"].get("precision", 32),
-        log_every_n_steps=1,
+        log_every_n_steps=10,
         callbacks= [
             # EigenvalueLoggingCallback(log_on_step=True, log_on_epoch=False)
         ],
