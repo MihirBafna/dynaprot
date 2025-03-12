@@ -51,7 +51,7 @@ def main():
     
     val_dataloader = torch.utils.data.DataLoader(
         val_dataset,
-        batch_size=1,
+        batch_size=model_config["train_params"]["batch_size"],
         collate_fn=OpenFoldBatchCollator(),
         num_workers=12,
         shuffle=False,
