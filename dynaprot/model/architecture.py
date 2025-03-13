@@ -76,9 +76,12 @@ class DynaProt(LightningModule):
             residue_features = ipa_block(residue_features, pairwise_embeddings, frames, mask)
             residue_features = self.dropout(residue_features)
 
+        covars, covars_clipped = self.pred_covars_direct(residue_features=residue_features)
         preds = dict(
             # means = self.pred_mean(residue_features),      # Shape: (batch_size, num_residues, 3)
-            covars = self.pred_covars(residue_features)    # Shape: (batch_size, num_residues, 3, 3)
+            # covars = self.pred_covars(residue_features)    # Shape: (batch_size, num_residues, 3, 3)
+            covars = covars,
+            covars_clipped = covars_clipped,
         )
 
         return preds
@@ -123,7 +126,7 @@ class DynaProt(LightningModule):
         return covars
     
     
-    def pred_covars_direct(self, residue_features, lambda_min=0.5, lambda_max=10, soft_clip=True):
+    def pred_covars_direct(self, residue_features, lambda_min=0.1):
         """
         Predict covariance matrices directly.
 
@@ -151,7 +154,16 @@ class DynaProt(LightningModule):
                     covars[:, :, c, r] = covar_entries[:, :, i]      # preserve symmetry
 
                 i += 1
-        return covars
+                
+        # return covars, None
+        covars_detached = covars.detach()
+        eigenvalues, eigenvectors = torch.linalg.eigh(covars_detached)  # Shape: (batch_size, num_residues, 3), (batch_size, num_residues, 3, 3)
+        eigenvalues_clipped = torch.clamp(eigenvalues, min=lambda_min)
+
+        covars_clipped = (
+            eigenvectors @ torch.diag_embed(eigenvalues_clipped) @ eigenvectors.transpose(-1, -2)
+        )
+        return covars, covars_clipped
     
     
     # def pred_covars(self, residue_features, lambda_min=0.5, lambda_max=10, soft_clip=False):
