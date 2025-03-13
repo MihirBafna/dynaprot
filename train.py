@@ -6,6 +6,7 @@ import pytorch_lightning as pl
 import torch
 import neptune as neptune
 from pytorch_lightning.loggers import NeptuneLogger
+from pytorch_lightning.callbacks import ModelCheckpoint
 from dynaprot.model.architecture import DynaProt
 from dynaprot.data.datasets import DynaProtDataset , OpenFoldBatchCollator
 from dynaprot.model.callbacks import EigenvalueLoggingCallback
@@ -14,6 +15,7 @@ def parse_args():
     parser = argparse.ArgumentParser(description="Training dynaprot")
     parser.add_argument("--data_config",default="configs/data/atlas_config.yaml", type=str, required=False, help="Path to the data config YAML file")
     parser.add_argument("--model_config",default="configs/model/dynaprot_simple.yaml", type=str, required=False, help="Path to the model config YAML file")
+    parser.add_argument("--name",type=str, required=True, help="Run name identifier")
     args = parser.parse_args()
     return args
 
@@ -88,6 +90,7 @@ def main():
 
         neptune_logger = NeptuneLogger(
             project=model_config["train_params"]["project"],
+            name=args.name,
             api_key=model_config["train_params"]["neptune_api_key"],
             tags=model_config["train_params"].get("tags", []),
             log_model_checkpoints=model_config["train_params"].get("log_model_checkpoints", True)
@@ -104,6 +107,12 @@ def main():
         log_every_n_steps=10,
         callbacks= [
             # EigenvalueLoggingCallback(log_on_step=True, log_on_epoch=False)
+            ModelCheckpoint(
+                dirpath="ckpt/", 
+                filename=args.name+"-{step:06d}", 
+                save_top_k=-1,  
+                every_n_train_steps=500  
+            )
         ],
     )
 
