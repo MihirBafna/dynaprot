@@ -15,24 +15,19 @@ def generate_ellipsoid_with_pdf(mean, cov, num_points=50):
     Returns:
         tuple: Meshgrid coordinates (X, Y, Z) of the ellipsoid surface and the PDF values.
     """
-    # Eigen-decomposition of the covariance matrix
     eigenvalues, eigenvectors = np.linalg.eigh(cov)
     
-    # Create a sphere
     u = np.linspace(0, 2 * np.pi, num_points)
     v = np.linspace(0, np.pi, num_points)
     x = np.outer(np.cos(u), np.sin(v))
     y = np.outer(np.sin(u), np.sin(v))
     z = np.outer(np.ones_like(u), np.cos(v))
 
-    # Scale the sphere to the ellipsoid using the eigenvalues
     radii = np.sqrt(eigenvalues)
     ellipsoid = np.array([x * radii[0], y * radii[1], z * radii[2]])
 
-    # Rotate the ellipsoid using the eigenvectors
     ellipsoid_rotated = np.einsum('ij,jkl->ikl', eigenvectors, ellipsoid)
 
-    # Translate the ellipsoid to the mean
     X = ellipsoid_rotated[0] + mean[0]
     Y = ellipsoid_rotated[1] + mean[1]
     Z = ellipsoid_rotated[2] + mean[2]
@@ -93,7 +88,7 @@ def plot_3d_gaussian_comparison(means, ground_truth_cov, predicted_cov, num_poin
         num_points (int): Number of points to generate for the ellipsoid surfaces.
         save_path (str): File path to save the plot as an HTML file.
     """
-    fig = go.Figure()
+    fig = go.Figure() 
 
     for i, (mean, cov) in enumerate(zip(means, ground_truth_cov)):
         # Generate the ellipsoid and its PDF
