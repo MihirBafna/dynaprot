@@ -32,13 +32,13 @@ class DynaProt(LightningModule):
         # self.ipa_blocks = nn.ModuleList([OpenFoldIPA(c_s=self.d_model,c_z=self.d_model,c_hidden=16,no_heads=4,no_qk_points=4,no_v_points=8) for _ in range(self.num_ipa_blocks)])
         # self.ipa_blocks = nn.ModuleList([LRIPABlock(dim=self.d_model, require_pairwise_repr=False) for _ in range(self.num_ipa_blocks)])
         self.ipa_blocks = nn.ModuleList([LRIPA(dim=self.d_model,require_pairwise_repr=False) for _ in range(self.num_ipa_blocks)])
-        # self.ff = nn.Sequential(
-        #     nn.Linear(self.d_model,self.d_model),
-        #     nn.ReLU(),
-        #     nn.Linear(self.d_model,self.d_model),
-        #     # nn.ReLU(),
-        #     # nn.Linear(self.d_model,self.d_model)
-        #     )
+        self.ff = nn.Sequential(
+            nn.Linear(self.d_model,self.d_model),
+            nn.ReLU(),
+            nn.Linear(self.d_model,self.d_model),
+            nn.ReLU(),
+            nn.Linear(self.d_model,self.d_model)
+            )
         self.dropout = nn.Dropout(0.2)
         # self.post_norm = nn.LayerNorm(self.d_model)
 
@@ -85,7 +85,7 @@ class DynaProt(LightningModule):
             # residue_features = ipa(residue_features, pairwise_embeddings, frames, mask)
             # residue_features = self.dropout(residue_features)
             # residue_features = ipa(x=residue_features, rotations=frames.get_rots().get_rot_mats(),translations=frames.get_trans(), mask=mask.bool())
-            residue_features = ipa(single_repr=residue_features, rotations=frames.get_rots().get_rot_mats(),translations=frames.get_trans(), mask=mask.bool()) + 0.3 * residue_features
+            residue_features = ipa(single_repr=residue_features, rotations=frames.get_rots().get_rot_mats(),translations=frames.get_trans(), mask=mask.bool()) + 0.1 * residue_features
             residue_features = self.ff(residue_features)
             # residue_features = ipa_block(single_repr=residue_features, rotations=frames.get_rots().get_rot_mats(),translations=frames.get_trans(), mask=mask.bool()) + residue_features
             residue_features = self.dropout(residue_features)
