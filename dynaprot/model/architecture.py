@@ -3,9 +3,10 @@ import torch.nn as nn
 import torch.optim as optim
 from pytorch_lightning import LightningModule
 import torch.nn.functional as F
-from openfold.model.structure_module import InvariantPointAttention as OpenFoldIPA
-from dynaprot.model.operators.invariant_point_attention import IPABlock
-from dynaprot.model.operators.invariant_point_attention import InvariantPointAttention as LRIPA
+# from openfold.model.structure_module import InvariantPointAttention as OpenFoldIPA
+from dynaprot.model.operators.of_ipa import InvariantPointAttention as OpenFoldIPA
+from dynaprot.model.operators.lr_ipa import IPABlock as LRIPABlock
+from dynaprot.model.operators.lr_ipa import InvariantPointAttention as LRIPA
 from openfold.utils.rigid_utils import  Rigid
 from dynaprot.model.loss import DynaProtLoss
 from torch.nn.utils import clip_grad_norm_
@@ -29,9 +30,15 @@ class DynaProt(LightningModule):
 
         # IPA layers
         # self.ipa_blocks = nn.ModuleList([OpenFoldIPA(c_s=self.d_model,c_z=self.d_model,c_hidden=16,no_heads=4,no_qk_points=4,no_v_points=8) for _ in range(self.num_ipa_blocks)])
-        # self.ipa_blocks = nn.ModuleList([IPABlock(dim=self.d_model, post_attn_dropout=0.2,post_ff_dropout=0.2, heads=4, point_key_dim = 4, point_value_dim = 8,require_pairwise_repr=False, post_norm=True) for _ in range(self.num_ipa_blocks)])
+        # self.ipa_blocks = nn.ModuleList([LRIPABlock(dim=self.d_model, require_pairwise_repr=False) for _ in range(self.num_ipa_blocks)])
         self.ipa_blocks = nn.ModuleList([LRIPA(dim=self.d_model,require_pairwise_repr=False) for _ in range(self.num_ipa_blocks)])
-
+        # self.ff = nn.Sequential(
+        #     nn.Linear(self.d_model,self.d_model),
+        #     nn.ReLU(),
+        #     nn.Linear(self.d_model,self.d_model),
+        #     # nn.ReLU(),
+        #     # nn.Linear(self.d_model,self.d_model)
+        #     )
         self.dropout = nn.Dropout(0.2)
         # self.post_norm = nn.LayerNorm(self.d_model)
 
@@ -74,11 +81,13 @@ class DynaProt(LightningModule):
         pairwise_embeddings = self.init_pairwise_features(sequence).to(residue_features) 
 
         # IPA blocks
-        for ipa_block in self.ipa_blocks:
-            # residue_features = ipa_block(residue_features, pairwise_embeddings, frames, mask)
+        for ipa in self.ipa_blocks:
+            # residue_features = ipa(residue_features, pairwise_embeddings, frames, mask)
             # residue_features = self.dropout(residue_features)
-            # residue_features = ipa_block(x=residue_features, rotations=frames.get_rots().get_rot_mats(),translations=frames.get_trans(), mask=mask.bool())
-            residue_features = ipa_block(single_repr=residue_features, rotations=frames.get_rots().get_rot_mats(),translations=frames.get_trans(), mask=mask.bool())
+            # residue_features = ipa(x=residue_features, rotations=frames.get_rots().get_rot_mats(),translations=frames.get_trans(), mask=mask.bool())
+            residue_features = ipa(single_repr=residue_features, rotations=frames.get_rots().get_rot_mats(),translations=frames.get_trans(), mask=mask.bool()) + 0.3 * residue_features
+            residue_features = self.ff(residue_features)
+            # residue_features = ipa_block(single_repr=residue_features, rotations=frames.get_rots().get_rot_mats(),translations=frames.get_trans(), mask=mask.bool()) + residue_features
             residue_features = self.dropout(residue_features)
             # residue_features = self.post_norm(residue_features)
 
