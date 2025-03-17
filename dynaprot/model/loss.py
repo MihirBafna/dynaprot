@@ -25,7 +25,8 @@ class DynaProtLoss(torch.nn.Module):
         """
         
         mask = batch["resi_pad_mask"].bool()
-        
+        squaremask = batch["resi_pad_mask"].unsqueeze(1) * batch["resi_pad_mask"].unsqueeze(2) 
+
         true_means = batch["dynamics_means"].float()[mask]
         # predicted_means = preds["means"][mask]
 
@@ -34,6 +35,9 @@ class DynaProtLoss(torch.nn.Module):
         true_covars = batch["dynamics_covars"].float()[mask]
         predicted_covars =  preds["covars"][mask]
         # predicted_covars_clipped =  preds["covars_clipped"][mask]
+        
+        true_corrs = batch["dynamics_correlations"].float() * squaremask
+        predicted_corrs =  preds["corrs"]
         
         loss_weights = self.cfg["eval_params"]["loss_weights"]
 
@@ -48,6 +52,10 @@ class DynaProtLoss(torch.nn.Module):
                 log_frob_norm = metrics.log_frobenius_norm(predicted_covars, true_covars) if loss_weights["resi_gaussians"]["log_frob_norm"] is not None else None,
                 affine_invariant_dist = metrics.affine_invariant_distance(predicted_covars, true_covars) if loss_weights["resi_gaussians"]["affine_invariant_dist"] is not None else None,
                 bures_dist = metrics.bures_distance(predicted_covars, true_covars) if loss_weights["resi_gaussians"]["bures_dist"] is not None else None,
+            ),
+            resi_correlations=dict(
+                mse=F.mse_loss(predicted_corrs, true_corrs) if loss_weights["resi_correlations"]["mse"] is not None else None,
+                bures_dist = metrics.bures_distance(predicted_corrs, true_corrs) if loss_weights["resi_correlations"]["bures_dist"] is not None else None,
             ),
             resi_rmsf=dict(
                 # TODO: Implement RMSF loss calculation

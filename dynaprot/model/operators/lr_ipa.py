@@ -8,7 +8,7 @@ from einops.layers.torch import Rearrange
 from einops import rearrange, repeat
 
 
-'''---------------------------- lucidrains implementation (https://github.com/lucidrains/invariant-point-attention/blob/main/invariant_point_attention/invariant_point_attention.py) -------------------------------------------'''
+'''---------------------------- slight modifications from lucidrains implementation (https://github.com/lucidrains/invariant-point-attention/blob/main/invariant_point_attention/invariant_point_attention.py) -------------------------------------------'''
 
 
 # helpers
@@ -96,7 +96,8 @@ class InvariantPointAttention(nn.Module):
         *,
         rotations,
         translations,
-        mask = None
+        mask = None,
+        return_attn=False,
     ):
         x, b, h, eps, require_pairwise_repr = single_repr, single_repr.shape[0], self.heads, self.eps, self.require_pairwise_repr
         assert not (require_pairwise_repr and not exists(pairwise_repr)), 'pairwise representation must be given as second argument'
@@ -193,7 +194,11 @@ class InvariantPointAttention(nn.Module):
         # concat results and project out
 
         results = torch.cat(results, dim = -1)
-        return self.to_out(results)
+        
+        if return_attn:
+            return self.to_out(results), attn
+        else:
+            return self.to_out(results)
 
 # one transformer block based on IPA
 
