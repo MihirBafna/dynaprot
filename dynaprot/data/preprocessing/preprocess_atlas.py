@@ -73,41 +73,61 @@ def save_separate_frames(prot, superposed_traj, frame_stride=20):
     return prot
         
 
-def process_one_trajectory_atlas(prot):   # just taking R1 traj and topology file as pdb. Is this valid??
+def process_one_trajectory_atlas(prot):  
     name,chain = prot.split("_")
-    for i in range(3):
-        traj_path = os.path.join(inpath, prot, prot+f"_prod_R{i+1}_fit.xtc")
-        pdb_path = os.path.join(inpath,prot, prot+".pdb")
-        
-        if not os.path.exists(outpath+f"/{prot}/"):
-            os.mkdir(outpath+f"/{prot}/")
+    if not os.path.exists(outpath+f"/{prot}/"):
+        os.mkdir(outpath+f"/{prot}/")
 
-        traj = md.load(traj_path,top=pdb_path)
-        ref = md.load(pdb_path)     
-        traj.superpose(ref)         # superpose to our mmcifs
+    pt_path = os.path.join(outpath,prot,f"{prot}.pt")
+    
+    pdb_path = os.path.join(inpath,prot, prot+".pdb")
+    ref = md.load(pdb_path)     
 
-        return save_separate_frames(prot, traj, 100)
-        
-        # generate feats and process them into dicts
-        feats = from_pdb_string(open(pdb_path, 'r').read())
-        feats = feature_pipeline.np_to_tensor_dict(feats, feats.keys()) # converting to tensor dict
-        feats = data_transforms.atom37_to_frames(feats)                 # Getting true backbone frames (num_res, 4, 4)
-        feats = data_transforms.get_backbone_frames(feats)
-        selected_feats = {k:feats[k] for k in ["aatype","residue_index","all_atom_positions","all_atom_mask"]}
-        selected_feats["frames"] = feats["backbone_rigid_tensor"] 
+    replicates = []
+    for i in range(3):  # assuming 3 replicates
+        traj_path = os.path.join(inpath, prot, f"{prot}_prod_R{i+1}_fit.xtc")
+        traj = md.load(traj_path, top=pdb_path)
+        replicates.append(traj)
+    
+    traj = md.join(replicates)
+    traj.superpose(ref)         # superpose to our reference
+    
+    # if os.path.exists(pt_path):
+    #     selected_feats = torch.load(pt_path)
+    #     selected_feats["dynamics_rmsf"] = compute_rmsf_from_covariances(selected_feats["dynamics_covars_local"])
+    #     torch.save(selected_feats,pt_path)
+    #     return prot
+    
+    save_separate_frames(prot, traj, 100)
+    
+    # generate feats and process them into dicts
+    feats = from_pdb_string(open(pdb_path, 'r').read())
+    feats = feature_pipeline.np_to_tensor_dict(feats, feats.keys()) # converting to tensor dict
+    feats = data_transforms.atom37_to_frames(feats)                 # Getting true backbone frames (num_res, 4, 4)
+    feats = data_transforms.get_backbone_frames(feats)
+    selected_feats = {k:feats[k] for k in ["aatype","residue_index","all_atom_positions","all_atom_mask"]}
+    selected_feats["frames"] = feats["backbone_rigid_tensor"] 
 
-        # compute all dynamics here                 
-        selected_feats["dynamics_means"], selected_feats["dynamics_covars"],selected_feats["dynamics_fullcovar"] = compute_gaussians_per_residue(traj, args.calpha)
-        # selected_feats["dynamics_fullcovar"] = compute_full_covariance(traj, args.calpha)
-        
-        selected_feats["dynamics_covars"], selected_feats["dynamics_fullcovar"] = map_one_protein_local_frame(selected_feats)
+    # compute all dynamics here                 
+    selected_feats["dynamics_means"], selected_feats["dynamics_covars_global"],selected_feats["dynamics_fullcovar_global"] = compute_gaussians_per_residue(traj, args.calpha)
+    # selected_feats["dynamics_fullcovar"] = compute_full_covariance(traj, args.calpha)
 
-        selected_feats["dynamics_correlations"] = compute_residue_correlations(selected_feats["dynamics_fullcovar"])
-        
-        torch.save(selected_feats,os.path.join(outpath,prot,f"{prot}_rep{i+1}.pt"))
-        
+    selected_feats["dynamics_covars_local"],selected_feats["dynamics_fullcovar_local"] = map_one_protein_local_frame( selected_feats["frames"].double(),  selected_feats["dynamics_covars_global"].double(),selected_feats["dynamics_fullcovar_global"].double())
+    selected_feats["dynamics_rmsf"] = compute_rmsf_from_covariances(selected_feats["dynamics_covars_local"])
+
+    selected_feats["dynamics_correlations"] = compute_residue_correlations(selected_feats["dynamics_fullcovar_local"])
+    
+    torch.save(selected_feats,pt_path)
+    
     return prot
 
+
+
+def compute_rmsf_from_covariances(cov_matrices):
+    trace = cov_matrices.diagonal(dim1=1, dim2=2).sum(dim=1)
+    rmsf = torch.sqrt(trace)
+    return rmsf
+    
     
 def compute_gaussians_per_residue(traj, calpha: bool):
     num_residues = traj.topology.n_residues
@@ -146,33 +166,6 @@ def compute_gaussians_per_residue(traj, calpha: bool):
     return torch.from_numpy(means), torch.from_numpy(covariances), torch.from_numpy(covariance_full)
 
 
-# def compute_full_covariance(traj, calpha: bool):
-#     residuecoords = []
-#     for i, residue in enumerate(traj.topology.residues):
-#         use_calpha = calpha
-#         if use_calpha:
-#                 ca_atom = [atom.index for atom in residue.atoms if atom.name == 'CA']
-#                 if ca_atom:
-#                     xyz = traj.xyz[:, ca_atom[0], :] * 10           # shape (n_frames, 3)
-#                 else:
-#                     use_calpha = False  # calpha wasnt found
-#         if not use_calpha:
-#             # Extract xyz coordinates for all atoms in the residue across all frames
-#             atom_indices = [atom.index for atom in residue.atoms]
-#             # scale nanometers to angstroms (x10)
-#             xyz = np.mean(traj.xyz[:, atom_indices, :],axis=1) * 10 # shape (T, 3)  frames by residue i's position (mean pos of atoms) 
-#             residuecoords.append(xyz)
-
-#     X = np.stack(residuecoords, axis=2) # shape (T, 3, n_residues) 
-#     T, _, N = X.shape  # T: time frames, 3: coordinates, N: residues
-#     X_full = X.reshape((T,3*N))    # shape (T, 3 * num_residues)
-
-#     X_mean = np.mean(X_full, axis=0)
-#     X_centered = X_full - X_mean
-    
-#     covariance_full = X_centered.T @ X_centered / (T-1)
-#     return torch.from_numpy(covariance_full)
-
 
 def compute_residue_correlations(full_cov, mode="trace"):  # using trace or fro based correlation. Also, should probably run after alignment
 
@@ -195,25 +188,6 @@ def compute_residue_correlations(full_cov, mode="trace"):  # using trace or fro 
     return torch.from_numpy(C)
 
 
-
-# def align_to_local_frames():
-#     cfg = {
-#         "dynam_data_dir":args.outpath,
-#         "struc_data_dir":"/data/cb/scratch/datasets/pdb_npz",
-#     }
-#     data = DynaProtDataset(cfg)
-
-#     with Progress() as progress:
-#         task = progress.add_task("[cyan]Locally aligning proteins...", total=len(data))
-#         with multiprocessing.Pool(processes=40) as pool:
-#             results = []
-#             align_function = partial(align_one_protein, data=data)
-#             for i, result in enumerate(pool.imap(align_function, range(len(data)))):
-#                 results.append(result)
-#                 progress.update(task, advance=1)
-                
-#             np.save("aligned_proteins.npy",np.array(results))
-            
 
 
 # process_one_trajectory_atlas("1bq8_A")

@@ -36,14 +36,14 @@ class DynaProt(LightningModule):
             nn.Linear(self.d_model,self.d_model),
             nn.ReLU(),
             nn.Linear(self.d_model,self.d_model),
-            nn.ReLU(),
-            nn.Linear(self.d_model,self.d_model)
+            # nn.ReLU(),
+            # nn.Linear(self.d_model,self.d_model)
             )
         self.dropout = nn.Dropout(0.2)
         # self.post_norm = nn.LayerNorm(self.d_model)
 
         self.covars_predictor = nn.Linear(self.d_model, 6)  # Predict lower diagonal matrix L (cholesky decomposition) to ensure symmetric psd Σ = LL^T
-        self.global_corr_predictor = nn.Linear(self.num_residues, self.num_residues)      # map attention matrix to n by n correlations
+        # self.global_corr_predictor = nn.Linear(self.num_residues, self.num_residues)      # map attention matrix to n by n correlations
         
         # for stability
         self.epsilon = 1e-6      # regularization to ensure Σ is positive definite and other stability issues
@@ -89,9 +89,9 @@ class DynaProt(LightningModule):
             else:
                 residue_features = ipa(single_repr=residue_features, rotations=frames.get_rots().get_rot_mats(),translations=frames.get_trans(), mask=mask.bool())
             residue_features = self.ff(residue_features)
-            # residue_features = ipa_block(single_repr=residue_features, rotations=frames.get_rots().get_rot_mats(),translations=frames.get_trans(), mask=mask.bool()) + residue_features
             residue_features = self.dropout(residue_features)
-            # residue_features = self.post_norm(residue_features)
+        # for ipa_block in self.ipa_blocks:
+        #     residue_features = ipa_block(x=residue_features, rotations=frames.get_rots().get_rot_mats(),translations=frames.get_trans(), mask=mask.bool())
 
         # covars, covars_clipped = self.pred_covars_direct(residue_features=residue_features)
         preds = dict(
@@ -99,7 +99,7 @@ class DynaProt(LightningModule):
             covars = self.pred_covars(residue_features),    # Shape: (batch_size, num_residues, 3, 3)
             # covars = covars,
             # covars_clipped = covars_clipped,
-            corrs = self.pred_corrs(attn)
+            # corrs = self.pred_corrs(attn),
         )
 
         return preds
@@ -184,11 +184,52 @@ class DynaProt(LightningModule):
         return covars, covars_clipped
     
     
-    def pred_corrs(self, attention):
-        corr_entries = self.global_corr_predictor(attention) 
-        corr = (corr_entries + corr_entries.transpose(-1,-2))/2 # symmetry
-        corr = corr - torch.diag_embed(torch.diagonal(corr)) + torch.eye(corr.shape[-1], device=corr.device).unsqueeze(0)
-        return corr
+    def pred_corrs(self, attention, lambda_min=0.1):
+        L_entries= self.global_corr_predictor(attention)
+        
+        # L = torch.zeros(
+        #     attention.shape[0], self.num_residues, self.num_residues, device=L_entries.device
+        # )
+        
+        # for c in range(self.num_residues):
+        #     for r in range(c, self.num_residues):
+        #         if r==c:
+        #             L[:, r,c] = F.softplus(L_entries[:,r,c])
+        #         else:
+        #             L[:, r,c] = L_entries[:,r,c]
+
+                
+        # print(L.shape)
+        # print(L[0])
+        L_diag_old = torch.diagonal(L_entries, dim1=-2, dim2=-1)
+        L_diag = F.softplus(L_diag_old) + self.epsilon
+        # print(L_diag_old.shape)
+        L = L_entries - torch.diag_embed(L_diag_old) + torch.diag_embed(L_diag)
+        # print(L[0])
+        covars = L @ L.transpose(-1, -2)   # (b,n,n)
+        variances = torch.diagonal(covars, dim1=-2, dim2=-1)  # (b, n)
+        sd = torch.sqrt(variances + self.epsilon).unsqueeze(-1) # (b, n, 1)
+        # print(sd)
+        corrs = covars/(sd @ sd.transpose(-1,-2))
+        # print(corrs.shape)
+        # print(corrs[0])
+        return corrs
+        
+        corrs_detached = corrs.detach()
+        eigenvalues, eigenvectors = torch.linalg.eigh(corrs_detached)  # Shape: (batch_size, num_residues, 3), (batch_size, num_residues, 3, 3)
+        eigenvalues_clipped = torch.clamp(eigenvalues, min=lambda_min)
+
+        corrs_clipped = (
+            eigenvectors @ torch.diag_embed(eigenvalues_clipped) @ eigenvectors.transpose(-1, -2)
+        )
+        return corrs, corrs_clipped
+    
+        # print(corr_entries.shape)
+        # corr = (corr_entries + corr_entries.transpose(-1,-2))/2 # symmetry
+        # print(corr.shape,torch.diag_embed(torch.diagonal(corr)).shape)
+        # corr = corr - torch.diag_embed(torch.diagonal(corr,dim1=-2, dim2=-1)) + torch.eye(corr.shape[-1], device=corr.device).unsqueeze(0)
+        # print(corr)
+        # return corr
     
     
     

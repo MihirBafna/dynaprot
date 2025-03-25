@@ -142,40 +142,43 @@ def from_pdb_string(pdb_str: str, chain_id: Optional[str] = None) -> dict:
     )
     
     
-def map_one_protein_local_frame(feats):
+def map_one_protein_local_frame(prot_frames, prot_covars, prot_fullcovar = None):
     """Maps the per residue covariance matrices of a single protein to its local frames."""
-    prot_frames, prot_covars, prot_fullcovar = feats["frames"].double(), feats["dynamics_covars"].double(), feats["dynamics_fullcovar"].double()
+    # prot_frames, prot_covars, prot_fullcovar = feats["frames"].double(), feats["dynamics_covars"].double(), feats["dynamics_fullcovar"].double()
     
     # print(prot_frames.shape[0], prot_covars.shape[0])
     assert prot_frames.shape[0] == prot_covars.shape[0]
     rotations = Rigid.from_tensor_4x4(prot_frames).get_rots().get_rot_mats().double()  # Extract rotation matrices
     local_covars = torch.einsum("nij,njk,nlk->nil", rotations, prot_covars, rotations)
-    feats["dynamics_covars"] = local_covars
+    # feats["dynamics_covars"] = local_covars
 
     # align full covar
-    R_block = torch.block_diag(*[rotations[i] for i in range(rotations.shape[0])])
-    local_fullcovar = R_block @ prot_fullcovar @ R_block.transpose(-1, -2)
-    feats["dynamics_fullcovar"] = local_fullcovar
+    local_fullcovar = None
+    if prot_fullcovar is not None:
+        R_block = torch.block_diag(*[rotations[i] for i in range(rotations.shape[0])])
+        local_fullcovar = R_block @ prot_fullcovar @ R_block.transpose(-1, -2)
+    # feats["dynamics_fullcovar"] = local_fullcovar
 
-    return feats
-    # return local_covars, local_fullcovar
+    # return feats
+    return local_covars, local_fullcovar
 
 
-def map_one_protein_global_frame(feats):
+def map_one_protein_global_frame(prot_frames, prot_covars, prot_fullcovar = None):
     """Maps the per residue covariance matrices of a single protein to its global frames."""
-    prot_frames, prot_covars, prot_fullcovar = feats["frames"].double(), feats["dynamics_covars"].double(), feats["dynamics_fullcovar"].double()
+    # prot_frames, prot_covars, prot_fullcovar = feats["frames"].double(), feats["dynamics_covars"].double(), feats["dynamics_fullcovar"].double()
     
     # print(prot_frames.shape[0], prot_covars.shape[0])
     assert prot_frames.shape[0] == prot_covars.shape[0]
     rotations = Rigid.from_tensor_4x4(prot_frames).get_rots().get_rot_mats().double()  # Extract rotation matrices
     global_covars = torch.einsum("nji,njk,nkl->nil", rotations, prot_covars, rotations)
-    feats["dynamics_covars"] = global_covars
+    # feats["dynamics_covars"] = global_covars
 
     # align full covar
-    R_block = torch.block_diag(*[rotations[i] for i in range(rotations.shape[0])])
-    global_fullcovar = R_block.transpose(-1, -2) @ prot_fullcovar @ R_block
-    feats["dynamics_fullcovar"] = global_fullcovar
-
-    return feats
-    # return global_covars, global_fullcovar
+    global_fullcovar = None
+    if prot_fullcovar is not None:
+        R_block = torch.block_diag(*[rotations[i] for i in range(rotations.shape[0])])
+        global_fullcovar = R_block.transpose(-1, -2) @ prot_fullcovar @ R_block
+    # feats["dynamics_fullcovar"] = global_fullcovar
+    # return feats
+    return global_covars, global_fullcovar
 

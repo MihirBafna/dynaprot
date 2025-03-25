@@ -5,6 +5,8 @@ import re
 import pytorch_lightning as pl
 import torch
 import neptune as neptune
+import numpy as np
+import random
 from pytorch_lightning.loggers import NeptuneLogger
 from pytorch_lightning.callbacks import ModelCheckpoint
 from dynaprot.model.architecture import DynaProt
@@ -30,6 +32,7 @@ def load_config(config_path):
 
 def main():
     args = parse_args()
+    set_seed(42)
     
     data_config = load_config(args.data_config)
     model_config = load_config(args.model_config)
@@ -118,6 +121,14 @@ def main():
 
     trainer.fit(model,train_dataloader, val_dataloaders=val_dataloader)
 
+
+def set_seed(seed: int = 42):
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed_all(seed)
+    pl.seed_everything(seed, workers=True)
+    
 
 if __name__ == "__main__":
     main()

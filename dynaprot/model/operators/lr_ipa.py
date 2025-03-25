@@ -196,7 +196,7 @@ class InvariantPointAttention(nn.Module):
         results = torch.cat(results, dim = -1)
         
         if return_attn:
-            return self.to_out(results), attn
+            return self.to_out(results), attn_with_heads.mean(dim=1)
         else:
             return self.to_out(results)
 

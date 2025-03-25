@@ -1,4 +1,5 @@
 import torch
+from scipy.stats import pearsonr, spearmanr
 
 
 # def kl_divergence_mvn(mu1, sigma1, mu2, sigma2):
@@ -213,3 +214,32 @@ def bures_distance(pred_cov, gt_cov):
     
     wasserstein_dist = trace_pred + trace_gt - 2 * trace_cross
     return wasserstein_dist.mean()
+
+
+def bures_distance_ragged(pred_cov_list, gt_cov_list):
+    """
+    Compute the mean squared 2-Wasserstein (Bures) distance between a ragged list of covariance matrices.
+
+    Args:
+        pred_cov_list (list[torch.Tensor]): List of predicted covariance matrices (b, n_i, n_i).
+        gt_cov_list (list[torch.Tensor]): List of ground truth covariance matrices (b, n_i, n_i).
+    
+    Returns:
+        torch.Tensor: Mean Bures distance across all proteins in batch.
+    """
+    assert len(pred_cov_list) == len(gt_cov_list), "Batch size mismatch!"
+
+    distances = torch.stack([bures_distance(pred_cov, gt_cov) for pred_cov, gt_cov in zip(pred_cov_list, gt_cov_list)])
+
+    return distances.mean()
+
+def diagonal_mse_loss(pred_covs, true_covs):
+    pred_diag = pred_covs.diagonal(dim1=1, dim2=2)  # shape (N, 3)
+    true_diag = true_covs.diagonal(dim1=1, dim2=2)  # shape (N, 3)
+    return torch.nn.functional.mse_loss(pred_diag, true_diag)
+
+
+def rmsf_correlation(true_rmsf, pred_rmsf):
+    r_pearson, _ = pearsonr(true_rmsf, pred_rmsf)
+    r_spearman, _ = spearmanr(true_rmsf, pred_rmsf)
+    return r_pearson, r_spearman
