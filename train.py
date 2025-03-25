@@ -107,7 +107,7 @@ def main():
         devices=model_config["train_params"]["num_devices"],
         num_nodes=model_config["train_params"].get("num_nodes",1),
         precision=model_config["train_params"].get("precision", 32),
-        log_every_n_steps=10,
+        # log_every_n_steps=10,
         callbacks= [
             # EigenvalueLoggingCallback(log_on_step=True, log_on_epoch=False)
             ModelCheckpoint(

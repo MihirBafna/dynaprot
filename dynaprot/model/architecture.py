@@ -238,48 +238,88 @@ class DynaProt(LightningModule):
         clip_grad_norm_(parameters, self.cfg["train_params"]["grad_clip_norm"])
         
     
-    
+        
     def training_step(self, batch, batch_idx):
-        
         preds = self(batch["aatype"].argmax(dim=-1), Rigid.from_tensor_4x4(batch["frames"]), batch["resi_pad_mask"])
-
         total_loss, loss_dict = self.loss(preds, batch)
-        
-        # if self.trainer.is_global_zero:
-        for dynamics_type, losses in loss_dict.items():
-            for loss_name, loss_value in losses.items():
-                log_key = f"{dynamics_type}/{loss_name}"
-                self.log(log_key,loss_value,on_epoch=False,on_step=True, sync_dist=True)
-                # if self.logger is not None:
-                # self.logger.experiment[log_key].append(loss_value, step=self.global_step)
-        # Log the loss and return
-        # self.log_dict({"train_losses/total_loss":total_loss})
-        # if self.logger is not None:
-        # self.logger.experiment["train_losses/total_loss"].append(total_loss, step=self.global_step)
-        self.log("total_loss",total_loss,on_epoch=False,on_step=True, sync_dist=True)
-        
-        optimizer = self.optimizers()
-        current_lr = optimizer.param_groups[0]['lr']
-        self.log("learning_rate",current_lr,on_epoch=False,on_step=True, sync_dist=True)
-        # self.logger.experiment["train/learning_rate"].append(current_lr, step=self.global_step)
+
+        if self.global_step % 10 == 0:
+            for dynamics_type, losses in loss_dict.items():
+                for loss_name, loss_value in losses.items():
+                    log_key = f"train/{dynamics_type}/{loss_name}"
+                    loss_all_ranks = self.all_gather(loss_value).mean()
+                    if self.trainer.is_global_zero:
+                        self.logger.experiment[log_key].append(loss_all_ranks, step=self.global_step)
+                        
+            total_loss_all_ranks = self.all_gather(total_loss.detach()).mean()
+            if self.trainer.is_global_zero:
+                self.logger.experiment["train/total_loss"].append(total_loss_all_ranks, step=self.global_step)
+                
+            lr = self.optimizers().param_groups[0]["lr"]
+            self.logger.experiment["train/learning_rate"].append(lr, step=self.global_step)
+
+        return total_loss
     
-        return total_loss
-
-
-    def validation_step(self, batch, batch_idx):
+    
+    def validation_step(self, batch, batch_idx):    # called every epoch
         preds = self(batch["aatype"].argmax(dim=-1), Rigid.from_tensor_4x4(batch["frames"]), batch["resi_pad_mask"])
-
         total_loss, loss_dict = self.loss(preds, batch)
+
+
         for dynamics_type, losses in loss_dict.items():
             for loss_name, loss_value in losses.items():
-                log_key = f"validation/{dynamics_type}/{loss_name}"
-                self.log(log_key,loss_value,on_epoch=True,on_step=False,sync_dist=True)
-                # self.log_dict({log_key:loss_value})
-                # if self.logger is not None:
-                # self.logger.experiment[log_key].append(loss_value, step=self.global_step)
-        # Log the loss and return
-        # self.log_dict({"train_losses/total_loss":total_loss})
-        # if self.logger is not None:
-        # self.logger.experiment["val_losses/total_loss"].append(total_loss, step=self.global_step)
-        self.log("validation/total_loss",total_loss,on_epoch=True,on_step=False,sync_dist=True)
+                log_key = f"val/{dynamics_type}/{loss_name}"
+                loss_all_ranks = self.all_gather(loss_value).mean()
+                if self.trainer.is_global_zero:
+                    self.logger.experiment[log_key].append(loss_all_ranks, step=self.global_step) 
+                           
+        total_loss_all_ranks = self.all_gather(total_loss.detach()).mean()
+        if self.trainer.is_global_zero:                   
+            self.logger.experiment["val/total_loss"].append(total_loss_all_ranks, step=self.global_step)
         return total_loss
+    
+    # def training_step(self, batch, batch_idx):
+        
+    #     preds = self(batch["aatype"].argmax(dim=-1), Rigid.from_tensor_4x4(batch["frames"]), batch["resi_pad_mask"])
+
+    #     total_loss, loss_dict = self.loss(preds, batch)
+        
+    #     # if self.trainer.is_global_zero:
+    #     for dynamics_type, losses in loss_dict.items():
+    #         for loss_name, loss_value in losses.items():
+    #             log_key = f"{dynamics_type}/{loss_name}"
+    #             self.log(log_key,loss_value,on_epoch=False,on_step=True, sync_dist=True)
+    #             # if self.logger is not None:
+    #             # self.logger.experiment[log_key].append(loss_value, step=self.global_step)
+    #     # Log the loss and return
+    #     # self.log_dict({"train_losses/total_loss":total_loss})
+    #     # if self.logger is not None:
+    #     # self.logger.experiment["train_losses/total_loss"].append(total_loss, step=self.global_step)
+    #     self.log("total_loss",total_loss,on_epoch=False,on_step=True, sync_dist=True)
+        
+    #     optimizer = self.optimizers()
+    #     current_lr = optimizer.param_groups[0]['lr']
+    #     self.log("learning_rate",current_lr,on_epoch=False,on_step=True, sync_dist=True)
+    #     # self.logger.experiment["train/learning_rate"].append(current_lr, step=self.global_step)
+    
+    #     return total_loss
+
+
+    # def validation_step(self, batch, batch_idx):
+    #     preds = self(batch["aatype"].argmax(dim=-1), Rigid.from_tensor_4x4(batch["frames"]), batch["resi_pad_mask"])
+
+    #     total_loss, loss_dict = self.loss(preds, batch)
+    #     for dynamics_type, losses in loss_dict.items():
+    #         for loss_name, loss_value in losses.items():
+    #             log_key = f"validation/{dynamics_type}/{loss_name}"
+    #             self.log(log_key,loss_value,on_epoch=True,on_step=False,sync_dist=True)
+    #             # self.log_dict({log_key:loss_value})
+    #             # if self.logger is not None:
+    #             # self.logger.experiment[log_key].append(loss_value, step=self.global_step)
+    #     # Log the loss and return
+    #     # self.log_dict({"train_losses/total_loss":total_loss})
+    #     # if self.logger is not None:
+    #     # self.logger.experiment["val_losses/total_loss"].append(total_loss, step=self.global_step)
+    #     self.log("validation/total_loss",total_loss,on_epoch=True,on_step=False,sync_dist=True)
+    #     return total_loss
+    

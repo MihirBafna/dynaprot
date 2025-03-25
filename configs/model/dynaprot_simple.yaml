@@ -15,7 +15,7 @@ train_params:
   grad_clip_norm: 1.0
   accelerator: "gpu"
   strategy: "ddp"
-  num_devices: [0,1,2,3]
+  num_devices: [4,5,6,7]
   num_nodes: 1
   project: "openprot/dynamics"
   neptune_api_key: "INSERT YOUR API TOKEN HERE"
@@ -31,9 +31,9 @@ eval_params:
       eigen_penalty: null
       cond_penalty: null
       frob_norm: 0.0
-      log_frob_norm: 0.0
+      log_frob_norm: 1.0
       affine_invariant_dist: 0.0
-      bures_dist: 1.0
+      bures_dist: 0.0
       mse_diag: 0.0
     resi_correlations:
       mse: 0.0
