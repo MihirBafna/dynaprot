@@ -28,10 +28,7 @@ class DynaProtLoss(torch.nn.Module):
         squaremask = batch["resi_pad_mask"].unsqueeze(1) * batch["resi_pad_mask"].unsqueeze(2) 
 
         true_means = batch["dynamics_means"].float()[mask]
-        # predicted_means = preds["means"][mask]
 
-        # true_covars = batch["dynamics_covars"].float()[mask]  * torch.eye(3).to(preds["covars"])
-        # predicted_covars =  preds["covars"][mask] * torch.eye(3).to(preds["covars"])
         true_covars = batch["dynamics_covars_local"].float()[mask]
         predicted_covars =  preds["covars"][mask]
         # predicted_covars_clipped =  preds["covars_clipped"][mask]

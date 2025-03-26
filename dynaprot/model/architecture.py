@@ -36,8 +36,8 @@ class DynaProt(LightningModule):
             nn.Linear(self.d_model,self.d_model),
             nn.ReLU(),
             nn.Linear(self.d_model,self.d_model),
-            # nn.ReLU(),
-            # nn.Linear(self.d_model,self.d_model)
+            nn.ReLU(),
+            nn.Linear(self.d_model,self.d_model)
             )
         self.dropout = nn.Dropout(0.2)
         # self.post_norm = nn.LayerNorm(self.d_model)
