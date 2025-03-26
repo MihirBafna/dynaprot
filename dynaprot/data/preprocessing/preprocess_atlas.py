@@ -7,7 +7,7 @@ from rich.progress import Progress
 from rich.console import Console
 from dynaprot.data.datasets import DynaProtDataset
 from openfold.data import data_transforms, feature_pipeline
-from dynaprot.data.utils import from_pdb_string, map_one_protein_local_frame
+from dynaprot.data.utils import from_pdb_string, map_one_protein_local_frame,map_one_protein_global_frame
 import torch
 import argparse
 from functools import partial
@@ -73,7 +73,56 @@ def save_separate_frames(prot, superposed_traj, frame_stride=20):
     return prot
         
 
-def process_one_trajectory_atlas(prot):  
+# def process_one_trajectory_atlas(prot):  
+#     name,chain = prot.split("_")
+#     if not os.path.exists(outpath+f"/{prot}/"):
+#         os.mkdir(outpath+f"/{prot}/")
+
+#     pt_path = os.path.join(outpath,prot,f"{prot}.pt")
+    
+#     pdb_path = os.path.join(inpath,prot, prot+".pdb")
+#     ref = md.load(pdb_path)     
+
+#     replicates = []
+#     for i in range(3):  # assuming 3 replicates
+#         traj_path = os.path.join(inpath, prot, f"{prot}_prod_R{i+1}_fit.xtc")
+#         traj = md.load(traj_path, top=pdb_path)
+#         replicates.append(traj)
+    
+#     traj = md.join(replicates)
+#     traj.superpose(ref)         # superpose to our reference
+    
+#     # if os.path.exists(pt_path):
+#     #     selected_feats = torch.load(pt_path)
+#     #     selected_feats["dynamics_rmsf"] = compute_rmsf_from_covariances(selected_feats["dynamics_covars_local"])
+#     #     torch.save(selected_feats,pt_path)
+#     #     return prot
+    
+#     # save_separate_frames(prot, traj, 100)
+    
+#     # generate feats and process them into dicts
+#     feats = from_pdb_string(open(pdb_path, 'r').read())
+#     feats = feature_pipeline.np_to_tensor_dict(feats, feats.keys()) # converting to tensor dict
+#     feats = data_transforms.atom37_to_frames(feats)                 # Getting true backbone frames (num_res, 4, 4)
+#     feats = data_transforms.get_backbone_frames(feats)
+#     selected_feats = {k:feats[k] for k in ["aatype","residue_index","all_atom_positions","all_atom_mask"]}
+#     selected_feats["frames"] = feats["backbone_rigid_tensor"] 
+
+#     # compute all dynamics here                 
+#     selected_feats["dynamics_means"], selected_feats["dynamics_covars_global"],selected_feats["dynamics_fullcovar_global"] = compute_gaussians_per_residue(traj, args.calpha)
+#     # selected_feats["dynamics_fullcovar"] = compute_full_covariance(traj, args.calpha)
+
+#     selected_feats["dynamics_covars_local"],selected_feats["dynamics_fullcovar_local"] = map_one_protein_local_frame( selected_feats["frames"].double(),  selected_feats["dynamics_covars_global"].double(),selected_feats["dynamics_fullcovar_global"].double())
+#     selected_feats["dynamics_rmsf"] = compute_rmsf_from_covariances(selected_feats["dynamics_covars_local"])
+
+#     selected_feats["dynamics_correlations"] = compute_residue_correlations(selected_feats["dynamics_fullcovar_local"])
+    
+#     torch.save(selected_feats,pt_path)
+    
+#     return prot
+
+
+def process_one_trajectory_atlas(prot):  # w pooling
     name,chain = prot.split("_")
     if not os.path.exists(outpath+f"/{prot}/"):
         os.mkdir(outpath+f"/{prot}/")
@@ -82,24 +131,6 @@ def process_one_trajectory_atlas(prot):
     
     pdb_path = os.path.join(inpath,prot, prot+".pdb")
     ref = md.load(pdb_path)     
-
-    replicates = []
-    for i in range(3):  # assuming 3 replicates
-        traj_path = os.path.join(inpath, prot, f"{prot}_prod_R{i+1}_fit.xtc")
-        traj = md.load(traj_path, top=pdb_path)
-        replicates.append(traj)
-    
-    traj = md.join(replicates)
-    traj.superpose(ref)         # superpose to our reference
-    
-    # if os.path.exists(pt_path):
-    #     selected_feats = torch.load(pt_path)
-    #     selected_feats["dynamics_rmsf"] = compute_rmsf_from_covariances(selected_feats["dynamics_covars_local"])
-    #     torch.save(selected_feats,pt_path)
-    #     return prot
-    
-    save_separate_frames(prot, traj, 100)
-    
     # generate feats and process them into dicts
     feats = from_pdb_string(open(pdb_path, 'r').read())
     feats = feature_pipeline.np_to_tensor_dict(feats, feats.keys()) # converting to tensor dict
@@ -107,19 +138,38 @@ def process_one_trajectory_atlas(prot):
     feats = data_transforms.get_backbone_frames(feats)
     selected_feats = {k:feats[k] for k in ["aatype","residue_index","all_atom_positions","all_atom_mask"]}
     selected_feats["frames"] = feats["backbone_rigid_tensor"] 
-
-    # compute all dynamics here                 
-    selected_feats["dynamics_means"], selected_feats["dynamics_covars_global"],selected_feats["dynamics_fullcovar_global"] = compute_gaussians_per_residue(traj, args.calpha)
-    # selected_feats["dynamics_fullcovar"] = compute_full_covariance(traj, args.calpha)
-
-    selected_feats["dynamics_covars_local"],selected_feats["dynamics_fullcovar_local"] = map_one_protein_local_frame( selected_feats["frames"].double(),  selected_feats["dynamics_covars_global"].double(),selected_feats["dynamics_fullcovar_global"].double())
-    selected_feats["dynamics_rmsf"] = compute_rmsf_from_covariances(selected_feats["dynamics_covars_local"])
-
-    selected_feats["dynamics_correlations"] = compute_residue_correlations(selected_feats["dynamics_fullcovar_local"])
     
+    means = []
+    covars_local = []
+    fullcovar_local = []
+    rmsf = []
+    correlations = []
+    for i in range(3):  # assuming 3 replicates
+        traj_path = os.path.join(inpath, prot, f"{prot}_prod_R{i+1}_fit.xtc")
+        traj = md.load(traj_path, top=pdb_path)
+        traj.superpose(ref)         # superpose to our reference
+        dynamics_means, dynamics_covars_global, dynamics_fullcovar_global  = compute_gaussians_per_residue(traj, args.calpha)
+        dynamics_covars_local , dynamics_fullcovar_local = map_one_protein_local_frame(selected_feats["frames"].double(),  dynamics_covars_global.double(),dynamics_fullcovar_global.double())
+        dynamics_rmsf = compute_rmsf_from_covariances(dynamics_covars_local)    # local/global doesnt matter for rmsf it is invariant
+        dynamics_correlations = compute_residue_correlations(dynamics_fullcovar_local)
+        means.append(dynamics_means)
+        covars_local.append(dynamics_covars_local)
+        fullcovar_local.append(dynamics_fullcovar_local)
+        rmsf.append(dynamics_rmsf)
+        correlations.append(dynamics_correlations)
+
+
+    selected_feats["dynamics_means"] = torch.stack(means).mean(dim=0)
+    selected_feats["dynamics_covars_local"] = torch.stack(covars_local).mean(dim=0)
+    selected_feats["dynamics_fullcovar_local"] = torch.stack(fullcovar_local).mean(dim=0)
+    selected_feats["dynamics_covars_global"], selected_feats["dynamics_fullcovar_global"]  = map_one_protein_global_frame(selected_feats["frames"].double(),  selected_feats["dynamics_covars_local"].double(),selected_feats["dynamics_fullcovar_local"].double())
+    selected_feats["dynamics_rmsf"] = torch.stack(rmsf).mean(dim=0)
+    selected_feats["dynamics_correlations"] = torch.stack(correlations).mean(dim=0)
+
     torch.save(selected_feats,pt_path)
     
     return prot
+
 
 
 

@@ -278,6 +278,25 @@ class DynaProt(LightningModule):
             self.logger.experiment["val/total_loss"].append(total_loss_all_ranks, step=self.global_step)
         return total_loss
     
+    
+    
+    # def test_step(self, batch, batch_idx):    # called every epoch
+    #     preds = self(batch["aatype"].argmax(dim=-1), Rigid.from_tensor_4x4(batch["frames"]), batch["resi_pad_mask"])
+    #     total_loss, loss_dict = self.loss(preds, batch)
+
+
+    #     for dynamics_type, losses in loss_dict.items():
+    #         for loss_name, loss_value in losses.items():
+    #             log_key = f"val/{dynamics_type}/{loss_name}"
+    #             loss_all_ranks = self.all_gather(loss_value).mean()
+    #             if self.trainer.is_global_zero:
+    #                 self.logger.experiment[log_key].append(loss_all_ranks, step=self.current_epoch) 
+                           
+    #     total_loss_all_ranks = self.all_gather(total_loss.detach()).mean()
+    #     if self.trainer.is_global_zero:                   
+    #         self.logger.experiment["val/total_loss"].append(total_loss_all_ranks, step=self.current_epoch)
+    #     return total_loss
+    
     # def training_step(self, batch, batch_idx):
         
     #     preds = self(batch["aatype"].argmax(dim=-1), Rigid.from_tensor_4x4(batch["frames"]), batch["resi_pad_mask"])
