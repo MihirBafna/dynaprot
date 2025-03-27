@@ -32,18 +32,24 @@ class DynaProt(LightningModule):
         # self.ipa_blocks = nn.ModuleList([OpenFoldIPA(c_s=self.d_model,c_z=self.d_model,c_hidden=16,no_heads=4,no_qk_points=4,no_v_points=8) for _ in range(self.num_ipa_blocks)])
         # self.ipa_blocks = nn.ModuleList([LRIPABlock(dim=self.d_model, require_pairwise_repr=False) for _ in range(self.num_ipa_blocks)])
         self.ipa_blocks = nn.ModuleList([LRIPA(dim=self.d_model,require_pairwise_repr=False) for _ in range(self.num_ipa_blocks)])
-        self.ff = nn.Sequential(
-            nn.Linear(self.d_model,self.d_model),
-            nn.ReLU(),
-            nn.Linear(self.d_model,self.d_model),
-            # nn.ReLU(),
-            # nn.Linear(self.d_model,self.d_model)
-            )
+        # self.ff = nn.Sequential(
+        #     nn.Linear(self.d_model,self.d_model),
+        #     nn.ReLU(),
+        #     nn.Linear(self.d_model,self.d_model),
+        #     # nn.ReLU(),
+        #     # nn.Linear(self.d_model,self.d_model)
+        #     )
         self.dropout = nn.Dropout(0.2)
         # self.post_norm = nn.LayerNorm(self.d_model)
 
-        self.covars_predictor = nn.Linear(self.d_model, 6)  # Predict lower diagonal matrix L (cholesky decomposition) to ensure symmetric psd Σ = LL^T
-        # self.global_corr_predictor = nn.Linear(self.num_residues, self.num_residues)      # map attention matrix to n by n correlations
+        # self.covars_predictor = nn.Linear(self.d_model, 6)  # Predict lower diagonal matrix L (cholesky decomposition) to ensure symmetric psd Σ = LL^T
+        self.global_corr_predictor = nn.Sequential(
+            nn.Linear(1 + 2 * self.d_model, self.d_model),
+            nn.ReLU(),
+            # nn.Linear(hidden_dim_chol, hidden_dim_chol), 
+            # nn.ReLU(),                               
+            nn.Linear( self.d_model, 1) 
+        )
         
         # for stability
         self.epsilon = 1e-6      # regularization to ensure Σ is positive definite and other stability issues
@@ -88,18 +94,15 @@ class DynaProt(LightningModule):
                 residue_features, attn =  ipa(single_repr=residue_features, rotations=frames.get_rots().get_rot_mats(),translations=frames.get_trans(), mask=mask.bool(), return_attn=True)
             else:
                 residue_features = ipa(single_repr=residue_features, rotations=frames.get_rots().get_rot_mats(),translations=frames.get_trans(), mask=mask.bool())
-            residue_features = self.ff(residue_features)
+            # residue_features = self.ff(residue_features)
             residue_features = self.dropout(residue_features)
         # for ipa_block in self.ipa_blocks:
         #     residue_features = ipa_block(x=residue_features, rotations=frames.get_rots().get_rot_mats(),translations=frames.get_trans(), mask=mask.bool())
 
         # covars, covars_clipped = self.pred_covars_direct(residue_features=residue_features)
         preds = dict(
-            # means = self.pred_mean(residue_features),      # Shape: (batch_size, num_residues, 3)
-            covars = self.pred_covars(residue_features),    # Shape: (batch_size, num_residues, 3, 3)
-            # covars = covars,
-            # covars_clipped = covars_clipped,
-            # corrs = self.pred_corrs(attn),
+            # covars = self.pred_covars(residue_features),    # (batch_size, num_residues, 3, 3)
+            corrs = self.pred_corrs(residue_features, attn),   # (batch_size, num_residues, num_residues)
         )
 
         return preds
@@ -184,53 +187,46 @@ class DynaProt(LightningModule):
         return covars, covars_clipped
     
     
-    def pred_corrs(self, attention, lambda_min=0.1):
-        L_entries= self.global_corr_predictor(attention)
+    def pred_corrs(self, residue_features, attention):
         
-        # L = torch.zeros(
-        #     attention.shape[0], self.num_residues, self.num_residues, device=L_entries.device
-        # )
-        
-        # for c in range(self.num_residues):
-        #     for r in range(c, self.num_residues):
-        #         if r==c:
-        #             L[:, r,c] = F.softplus(L_entries[:,r,c])
-        #         else:
-        #             L[:, r,c] = L_entries[:,r,c]
+        b = attention.shape[0]
+        n = self.num_residues
+        device = attention.device
+        num_cholesky_entries = int(n*(n+1)/2)
 
-                
-        # print(L.shape)
-        # print(L[0])
-        L_diag_old = torch.diagonal(L_entries, dim1=-2, dim2=-1)
-        L_diag = F.softplus(L_diag_old) + self.epsilon
-        # print(L_diag_old.shape)
-        L = L_entries - torch.diag_embed(L_diag_old) + torch.diag_embed(L_diag)
-        # print(L[0])
-        covars = L @ L.transpose(-1, -2)   # (b,n,n)
-        variances = torch.diagonal(covars, dim1=-2, dim2=-1)  # (b, n)
-        sd = torch.sqrt(variances + self.epsilon).unsqueeze(-1) # (b, n, 1)
-        # print(sd)
-        corrs = covars/(sd @ sd.transpose(-1,-2))
-        # print(corrs.shape)
-        # print(corrs[0])
+        tril_indices = torch.tril_indices(row=n, col=n, offset=0, device=device)
+        flat_attn_lower_tri = attention[:, tril_indices[0], tril_indices[1]] #  (b, n*(n+1)/2)
+
+        features_i = residue_features[:, tril_indices[0], :] # (b, n*(n+1)/2, d_model)
+        features_j = residue_features[:, tril_indices[1], :] # (b, n*(n+1)/2, d_model)
+
+        combined_features = torch.cat(  
+                (flat_attn_lower_tri.unsqueeze(-1),     # (b, n*(n+1)/2, 1)
+                 features_i,                            # (b, n*(n+1)/2, d_model)
+                 features_j),                           # (b, n*(n+1)/2, d_model)
+                dim=-1
+            )                                           # resulting shape (b, n*(n+1)/2, 2*d_model + 1)
+        
+        features_reshaped = combined_features.view(-1, 2*self.d_model + 1)
+        flat_L_entries = self.global_corr_predictor(features_reshaped).view(b, num_cholesky_entries)
+        
+        L = torch.zeros(b, n, n, device=device)
+        L[:, tril_indices[0], tril_indices[1]] = flat_L_entries
+
+        diag_indices = torch.arange(n, device=device)
+        L_diag_old = L[:, diag_indices, diag_indices]
+        L_diag_new = F.softplus(L_diag_old) + self.epsilon                              # ensuring positivity on the diagonal of L
+        L = L - torch.diag_embed(L_diag_old) + torch.diag_embed(L_diag_new)
+
+        covars = L @ L.transpose(-1, -2) # Shape: (b, n, n)
+
+        variances = torch.diagonal(covars, dim1=-2, dim2=-1)
+        sd = torch.sqrt(torch.clamp(variances, min=self.epsilon)).unsqueeze(-1)
+        denominator = sd @ sd.transpose(-1, -2)
+        corrs = covars / (denominator + self.epsilon)
+        corrs = torch.clamp(corrs, min=-1.0, max=1.0)
+
         return corrs
-        
-        corrs_detached = corrs.detach()
-        eigenvalues, eigenvectors = torch.linalg.eigh(corrs_detached)  # Shape: (batch_size, num_residues, 3), (batch_size, num_residues, 3, 3)
-        eigenvalues_clipped = torch.clamp(eigenvalues, min=lambda_min)
-
-        corrs_clipped = (
-            eigenvectors @ torch.diag_embed(eigenvalues_clipped) @ eigenvectors.transpose(-1, -2)
-        )
-        return corrs, corrs_clipped
-    
-        # print(corr_entries.shape)
-        # corr = (corr_entries + corr_entries.transpose(-1,-2))/2 # symmetry
-        # print(corr.shape,torch.diag_embed(torch.diagonal(corr)).shape)
-        # corr = corr - torch.diag_embed(torch.diagonal(corr,dim1=-2, dim2=-1)) + torch.eye(corr.shape[-1], device=corr.device).unsqueeze(0)
-        # print(corr)
-        # return corr
-    
     
     
     def on_before_optimizer_step(self, optimizer):
