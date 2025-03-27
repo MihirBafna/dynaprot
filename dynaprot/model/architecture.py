@@ -33,13 +33,13 @@ class DynaProt(LightningModule):
         # self.ipa_blocks = nn.ModuleList([LRIPABlock(dim=self.d_model, require_pairwise_repr=False) for _ in range(self.num_ipa_blocks)])
         
         self.ipa_blocks = nn.ModuleList([LRIPA(dim=self.d_model,require_pairwise_repr=False) for _ in range(self.num_ipa_blocks)])
-        self.ff = nn.Sequential(
-            nn.Linear(self.d_model,self.d_model),
-            nn.ReLU(),
-            nn.Linear(self.d_model,self.d_model),
-            # nn.ReLU(),
-            # nn.Linear(self.d_model,self.d_model)
-            )
+        # # self.ff = nn.Sequential(
+        # #     nn.Linear(self.d_model,self.d_model),
+        # #     nn.ReLU(),
+        # #     nn.Linear(self.d_model,self.d_model),
+        # #     # nn.ReLU(),
+        # #     # nn.Linear(self.d_model,self.d_model)
+        # #     )
         self.dropout = nn.Dropout(0.2)
 
 
@@ -86,7 +86,7 @@ class DynaProt(LightningModule):
                 residue_features, attn =  ipa(single_repr=residue_features, rotations=frames.get_rots().get_rot_mats(),translations=frames.get_trans(), mask=mask.bool(), return_attn=True)
             else:
                 residue_features = ipa(single_repr=residue_features, rotations=frames.get_rots().get_rot_mats(),translations=frames.get_trans(), mask=mask.bool())
-            residue_features = self.ff(residue_features)
+            # residue_features = self.ff(residue_features)
             residue_features = self.dropout(residue_features)
             
         # for ipa_block in self.ipa_blocks:
