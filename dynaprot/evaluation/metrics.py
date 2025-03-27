@@ -227,7 +227,7 @@ def bures_distance_ragged(pred_cov_list, gt_cov_list):
     Returns:
         torch.Tensor: Mean Bures distance across all proteins in batch.
     """
-    assert len(pred_cov_list) == len(gt_cov_list), "Batch size mismatch!"
+    assert len(pred_cov_list) == len(gt_cov_list), "Batch size mismatch"
 
     distances = torch.stack([bures_distance(pred_cov, gt_cov) for pred_cov, gt_cov in zip(pred_cov_list, gt_cov_list)])
 
@@ -236,7 +236,7 @@ def bures_distance_ragged(pred_cov_list, gt_cov_list):
 
 def log_frobenius_norm_ragged(pred_cov_list, gt_cov_list):
     """
-    Compute the mean squared log frobenius norm between a ragged list of covariance matrices.
+    Compute the mean log frobenius norm between a ragged list of covariance matrices.
 
     Args:
         pred_cov_list (list[torch.Tensor]): List of predicted covariance matrices (b, n_i, n_i).
@@ -245,9 +245,27 @@ def log_frobenius_norm_ragged(pred_cov_list, gt_cov_list):
     Returns:
         torch.Tensor: Mean Bures distance across all proteins in batch.
     """
-    assert len(pred_cov_list) == len(gt_cov_list), "Batch size mismatch!"
+    assert len(pred_cov_list) == len(gt_cov_list), "Batch size mismatch"
 
     distances = torch.stack([log_frobenius_norm(pred_cov, gt_cov) for pred_cov, gt_cov in zip(pred_cov_list, gt_cov_list)])
+
+    return distances.mean()
+
+
+def mse_ragged(pred_cov_list, gt_cov_list):
+    """
+    Compute mse between a ragged list of covariance matrices.
+
+    Args:
+        pred_cov_list (list[torch.Tensor]): List of predicted covariance matrices (b, n_i, n_i).
+        gt_cov_list (list[torch.Tensor]): List of ground truth covariance matrices (b, n_i, n_i).
+    
+    Returns:
+        torch.Tensor: Mean Bures distance across all proteins in batch.
+    """
+    assert len(pred_cov_list) == len(gt_cov_list), "Batch size mismatch"
+
+    distances = torch.stack([torch.nn.functional.mse_loss(pred_cov, gt_cov) for pred_cov, gt_cov in zip(pred_cov_list, gt_cov_list)])
 
     return distances.mean()
 

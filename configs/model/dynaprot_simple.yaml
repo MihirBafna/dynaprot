@@ -36,9 +36,9 @@ eval_params:
       bures_dist: 0.0
       mse_diag: 0.0
     resi_correlations:
-      mse: 0.0
+      mse: 1.0
       bures_dist: 0.0
-      log_frob_norm: 1.0
+      log_frob_norm: 0.0
 
     resi_rmsf: null
     resi_rmsd: null

@@ -54,9 +54,9 @@ class DynaProtLoss(torch.nn.Module):
             #     # mse_diag= metrics.diagonal_mse_loss(predicted_covars,true_covars) if loss_weights["resi_gaussians"]["mse_diag"] is not None else None,
             # ),
             resi_correlations=dict(
-                log_frob_norm = metrics.log_frobenius_norm_ragged(predicted_corrs, true_corrs)  if loss_weights["resi_correlations"]["log_frob_norm"] is not None else None,
-                # mse=F.mse_loss(predicted_corrs, true_corrs, reduction="sum") if loss_weights["resi_correlations"]["mse"] is not None else None,
-                bures_dist = metrics.bures_distance_ragged(predicted_corrs, true_corrs) if loss_weights["resi_correlations"]["bures_dist"] is not None else None,
+                # log_frob_norm = metrics.log_frobenius_norm_ragged(predicted_corrs, true_corrs)  if loss_weights["resi_correlations"]["log_frob_norm"] is not None else None,
+                mse=metrics.mse_ragged(predicted_corrs, true_corrs) if loss_weights["resi_correlations"]["mse"] is not None else None,
+                # bures_dist = metrics.bures_distance_ragged(predicted_corrs, true_corrs) if loss_weights["resi_correlations"]["bures_dist"] is not None else None,
             ),
         )
         
