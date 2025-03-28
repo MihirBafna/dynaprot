@@ -186,20 +186,6 @@ class DynaProt(LightningModule):
     def pred_corrs(self, attention, lambda_min=0.1):
         L_entries= self.global_corr_predictor(attention)
         
-        # L = torch.zeros(
-        #     attention.shape[0], self.num_residues, self.num_residues, device=L_entries.device
-        # )
-        
-        # for c in range(self.num_residues):
-        #     for r in range(c, self.num_residues):
-        #         if r==c:
-        #             L[:, r,c] = F.softplus(L_entries[:,r,c])
-        #         else:
-        #             L[:, r,c] = L_entries[:,r,c]
-
-                
-        # print(L.shape)
-        # print(L[0])
         L_diag_old = torch.diagonal(L_entries, dim1=-2, dim2=-1)
         L_diag = F.softplus(L_diag_old) + self.epsilon
         # print(L_diag_old.shape)
@@ -214,22 +200,6 @@ class DynaProt(LightningModule):
         # print(corrs[0])
         return corrs
         
-        corrs_detached = corrs.detach()
-        eigenvalues, eigenvectors = torch.linalg.eigh(corrs_detached)  # Shape: (batch_size, num_residues, 3), (batch_size, num_residues, 3, 3)
-        eigenvalues_clipped = torch.clamp(eigenvalues, min=lambda_min)
-
-        corrs_clipped = (
-            eigenvectors @ torch.diag_embed(eigenvalues_clipped) @ eigenvectors.transpose(-1, -2)
-        )
-        return corrs, corrs_clipped
-    
-        # print(corr_entries.shape)
-        # corr = (corr_entries + corr_entries.transpose(-1,-2))/2 # symmetry
-        # print(corr.shape,torch.diag_embed(torch.diagonal(corr)).shape)
-        # corr = corr - torch.diag_embed(torch.diagonal(corr,dim1=-2, dim2=-1)) + torch.eye(corr.shape[-1], device=corr.device).unsqueeze(0)
-        # print(corr)
-        # return corr
-    
     
     
     def on_before_optimizer_step(self, optimizer):

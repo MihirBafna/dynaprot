@@ -239,7 +239,19 @@ def diagonal_mse_loss(pred_covs, true_covs):
     return torch.nn.functional.mse_loss(pred_diag, true_diag)
 
 
-def rmsf_correlation(true_rmsf, pred_rmsf):
-    r_pearson, _ = pearsonr(true_rmsf, pred_rmsf)
-    r_spearman, _ = spearmanr(true_rmsf, pred_rmsf)
-    return r_pearson, r_spearman
+def rmsf_correlation(true_rmsf, pred_rmsf, type="both"):
+    if type=="spearman":
+        corr, _ = spearmanr(true_rmsf, pred_rmsf)
+        return corr
+    elif type=="pearson":
+        corr, _ = pearsonr(true_rmsf, pred_rmsf)
+        return corr
+    elif type=="both":
+        sp, _ = spearmanr(true_rmsf, pred_rmsf)
+        pcc, _ = pearsonr(true_rmsf, pred_rmsf)
+        return pcc,sp
+
+def compute_rmsf_from_covariances(cov_matrices):
+    traces = cov_matrices.diagonal(dim1=1, dim2=2).sum(dim=1)
+    rmsf = torch.sqrt(traces)
+    return rmsf

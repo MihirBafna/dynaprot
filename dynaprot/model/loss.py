@@ -31,11 +31,10 @@ class DynaProtLoss(torch.nn.Module):
 
         true_covars = batch["dynamics_covars_local"].float()[mask]
         predicted_covars =  preds["covars"][mask]
-        # predicted_covars_clipped =  preds["covars_clipped"][mask]
+
         
-        # true_corrs = batch["dynamics_correlations"].float() * squaremask  * 10
-        # predicted_corrs =  preds["corrs"]* squaremask  *10
-        # num_entries = torch.sum(squaremask) 
+        true_rmsfs = metrics.compute_rmsf_from_covariances(true_covars.detach()).cpu()
+        pred_rmsfs = metrics.compute_rmsf_from_covariances(predicted_covars.detach()).cpu()
         
         loss_weights = self.cfg["eval_params"]["loss_weights"]
 
@@ -57,7 +56,8 @@ class DynaProtLoss(torch.nn.Module):
                 # bures_dist = metrics.bures_distance(predicted_corrs, true_corrs) if loss_weights["resi_correlations"]["bures_dist"] is not None else None,
             ),
             resi_rmsf=dict(
-                # TODO: Implement RMSF loss calculation
+                corr_sp = metrics.rmsf_correlation(true_rmsfs, pred_rmsfs, type="spearman") if loss_weights["resi_rmsf"]["corr_sp"] is not None else None,
+                corr_pcc = metrics.rmsf_correlation(true_rmsfs, pred_rmsfs, type="pearson") if loss_weights["resi_rmsf"]["corr_pcc"] is not None else None,
             )
         )
         
@@ -85,10 +85,8 @@ class DynaProtLoss(torch.nn.Module):
                 if loss is None:
                     continue
                 else:
-                    # print(loss_name,loss)
                     weight = loss_weights[dynamics_type][loss_name]
                     total_loss += weight * loss
-                    # dynamics_specific_loss_dict[loss_name] = loss.item()
-                    dynamics_specific_loss_dict[loss_name] = loss.detach()
+                    dynamics_specific_loss_dict[loss_name] = loss.detach() if isinstance(loss, torch.Tensor) else loss
 
         return total_loss, loss_dict

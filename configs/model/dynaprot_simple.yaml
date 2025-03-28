@@ -39,7 +39,10 @@ eval_params:
       mse: 0.0
       bures_dist: 0.0
 
-    resi_rmsf: null
+    resi_rmsf:
+      corr_sp: 0.0
+      corr_pcc: 0.0
+      
     resi_rmsd: null
     resi_rg: null
 
