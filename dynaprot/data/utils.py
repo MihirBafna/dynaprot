@@ -148,7 +148,8 @@ def map_one_protein_local_frame(prot_frames, prot_covars, prot_fullcovar = None)
     
     # print(prot_frames.shape[0], prot_covars.shape[0])
     assert prot_frames.shape[0] == prot_covars.shape[0]
-    rotations = Rigid.from_tensor_4x4(prot_frames).get_rots().get_rot_mats().double()  # Extract rotation matrices
+    # rotations = Rigid.from_tensor_4x4(prot_frames).get_rots().get_rot_mats().double()  # Extract rotation matrices
+    rotations  =  prot_frames[..., :3, :3]
     local_covars = torch.einsum("nij,njk,nlk->nil", rotations, prot_covars, rotations)
     # feats["dynamics_covars"] = local_covars
 
@@ -169,7 +170,8 @@ def map_one_protein_global_frame(prot_frames, prot_covars, prot_fullcovar = None
     
     # print(prot_frames.shape[0], prot_covars.shape[0])
     assert prot_frames.shape[0] == prot_covars.shape[0]
-    rotations = Rigid.from_tensor_4x4(prot_frames).get_rots().get_rot_mats().double()  # Extract rotation matrices
+    # rotations = Rigid.from_tensor_4x4(prot_frames).get_rots().get_rot_mats().double()  # Extract rotation matrices
+    rotations  =  prot_frames[..., :3, :3]
     global_covars = torch.einsum("nji,njk,nkl->nil", rotations, prot_covars, rotations)
     # feats["dynamics_covars"] = global_covars
 
