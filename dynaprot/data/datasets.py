@@ -47,7 +47,6 @@ class DynaProtDataset(Dataset):
             if "dynamics_fullcovar" in k or "dynamics_correlations" in k: # make better this is basically j hardcoded
                 schema[1] = "NUM_RES"
             shape_schema[k] = schema
-
         padded_selected_feats = make_fixed_size(prot_feat_dict,shape_schema, num_residues = self.cfg["max_num_residues"])      
         # TODO: random cropping for proteins that are larger than max num res
         
