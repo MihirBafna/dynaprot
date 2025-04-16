@@ -137,7 +137,7 @@ def log_frobenius_norm(sigma1, sigma2):
     return frobenius_norm.mean()
 
 
-def spd_matrix_log(covariance_matrix):
+def spd_matrix_log(covariance_matrix, eps = 1e-6):
     """
     Compute the matrix logarithm of a symmetric positive definite matrix.
 
@@ -149,7 +149,12 @@ def spd_matrix_log(covariance_matrix):
         torch.Tensor: Logarithm of the input matrix of the same shape (..., d, d).
     """
     eigenvalues, eigenvectors = torch.linalg.eigh(covariance_matrix)
-    log_eigenvalues = torch.log(eigenvalues)
+    safe_eigenvalues = torch.clamp(eigenvalues, min=eps)
+
+    if torch.any(eigenvalues < eps):
+        print("[spd_matrix_log] Warning: Eigenvalues below threshold were clamped.")
+
+    log_eigenvalues = torch.log(safe_eigenvalues)
     log_matrix = (eigenvectors @ torch.diag_embed(log_eigenvalues) @ eigenvectors.transpose(-1, -2))
     
     return log_matrix
@@ -232,6 +237,66 @@ def bures_distance_ragged(pred_cov_list, gt_cov_list):
     distances = torch.stack([bures_distance(pred_cov, gt_cov) for pred_cov, gt_cov in zip(pred_cov_list, gt_cov_list)])
 
     return distances.mean()
+
+
+def log_frobenius_norm_ragged(pred_matrix_list, gt_matrix_list):
+    """
+    Compute the mean log frobenius norm between a ragged list of covariance matrices.
+
+    Args:
+        pred_cov_list (list[torch.Tensor]): List of predicted covariance matrices (b, n_i, n_i).
+        gt_cov_list (list[torch.Tensor]): List of ground truth covariance matrices (b, n_i, n_i).
+    
+    Returns:
+        torch.Tensor: Mean Bures distance across all proteins in batch.
+    """
+    assert len(pred_matrix_list) == len(gt_matrix_list), "Batch size mismatch"
+
+    # distances = []
+    # successful_count = 0
+    # for i, (pred_m, gt_m) in enumerate(zip(pred_matrix_list, gt_matrix_list)):
+    #     try:
+    #         dist = log_frobenius_norm(pred_m, gt_m)
+    #         distances.append(dist)
+    #         successful_count += 1
+    #     except torch._C._LinAlgError as e:
+    #         print(f"Skipping item {i} due to LinAlgError: {e}")
+    #         # Optionally save matrices for debugging
+    #         # torch.save(...)
+    #         continue 
+
+    # if successful_count == 0:
+    #     # Handle cases where the entire batch failed
+    #     print("Warning: Entire batch failed log_frobenius_norm calculation.")
+    #     # Return 0 loss but ensure it doesn't propagate gradients if desired
+    #     # Or return a tensor indicating failure
+    #     return torch.tensor(0.0, device=pred_matrix_list[0].device, requires_grad=False)
+
+    # mean_loss = torch.stack(distances).mean()
+    # return mean_loss
+    distances = torch.stack([log_frobenius_norm(pred_cov, gt_cov) for pred_cov, gt_cov in zip(pred_matrix_list, gt_matrix_list)])
+
+    return distances.mean()
+
+
+
+def mse_ragged(pred_cov_list, gt_cov_list):
+    """
+    Compute mse between a ragged list of covariance matrices.
+
+    Args:
+        pred_cov_list (list[torch.Tensor]): List of predicted covariance matrices (b, n_i, n_i).
+        gt_cov_list (list[torch.Tensor]): List of ground truth covariance matrices (b, n_i, n_i).
+    
+    Returns:
+        torch.Tensor: Mean Bures distance across all proteins in batch.
+    """
+    assert len(pred_cov_list) == len(gt_cov_list), "Batch size mismatch"
+
+    distances = torch.stack([torch.nn.functional.mse_loss(pred_cov, gt_cov) for pred_cov, gt_cov in zip(pred_cov_list, gt_cov_list)])
+
+    return distances.mean()
+
 
 def diagonal_mse_loss(pred_covs, true_covs):
     pred_diag = pred_covs.diagonal(dim1=1, dim2=2)  # shape (N, 3)
