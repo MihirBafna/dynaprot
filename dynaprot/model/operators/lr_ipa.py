@@ -198,7 +198,7 @@ class InvariantPointAttention(nn.Module):
         if return_attn:
             return self.to_out(results), attn_with_heads.mean(dim=1)
         else:
-            return self.to_out(results)
+            return self.to_out(results), None
 
 # one transformer block based on IPA
 
