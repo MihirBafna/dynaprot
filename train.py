@@ -90,6 +90,7 @@ def main():
         print(f"Loaded from checkpoint path: {ckpt_path} and run id: {run_id}")
     else:
         model = DynaProt(model_config)
+        # model = model.double()
 
         neptune_logger = NeptuneLogger(
             project=model_config["train_params"]["project"],
@@ -98,6 +99,7 @@ def main():
             tags=model_config["train_params"].get("tags", []),
             log_model_checkpoints=model_config["train_params"].get("log_model_checkpoints", True)
         )
+    
     
     trainer = pl.Trainer(
         max_epochs=model_config["train_params"]["epochs"],
@@ -119,6 +121,7 @@ def main():
         ],
     )
 
+    torch.autograd.set_detect_anomaly(True)
     trainer.fit(model,train_dataloader, val_dataloaders=val_dataloader)
 
 
