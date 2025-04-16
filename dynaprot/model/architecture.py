@@ -23,29 +23,34 @@ class DynaProt(LightningModule):
         self.lr = cfg["train_params"]["learning_rate"]
         self.warmup_steps = cfg["train_params"]["warmup_steps"]
         self.total_steps = cfg["train_params"]["total_steps"]
-
+        self.grad_clip_val = cfg["train_params"]["grad_clip_norm"]
         # Embedding layers for sequence and pairwise features
         self.sequence_embedding = nn.Embedding(21, self.d_model)  # 21 amino acid types
         self.position_embedding = nn.Parameter(torch.zeros(1, self.num_residues, self.d_model))
 
+        self.automatic_optimization = False
+        self.out_type = self.cfg["train_params"]["out_type"]
         # IPA layers
         # self.ipa_blocks = nn.ModuleList([OpenFoldIPA(c_s=self.d_model,c_z=self.d_model,c_hidden=16,no_heads=4,no_qk_points=4,no_v_points=8) for _ in range(self.num_ipa_blocks)])
         # self.ipa_blocks = nn.ModuleList([LRIPABlock(dim=self.d_model, require_pairwise_repr=False) for _ in range(self.num_ipa_blocks)])
         
         self.ipa_blocks = nn.ModuleList([LRIPA(dim=self.d_model,require_pairwise_repr=False) for _ in range(self.num_ipa_blocks)])
-        # # self.ff = nn.Sequential(
-        # #     nn.Linear(self.d_model,self.d_model),
-        # #     nn.ReLU(),
-        # #     nn.Linear(self.d_model,self.d_model),
-        # #     # nn.ReLU(),
-        # #     # nn.Linear(self.d_model,self.d_model)
-        # #     )
+
         self.dropout = nn.Dropout(0.2)
 
+        if self.out_type == "marginal":
+            self.covars_predictor = nn.Linear(self.d_model, 6)  # Predict lower diagonal matrix L (cholesky decomposition) to ensure symmetric psd Σ = LL^T
 
-        self.covars_predictor = nn.Linear(self.d_model, 6)  # Predict lower diagonal matrix L (cholesky decomposition) to ensure symmetric psd Σ = LL^T
-        # self.global_corr_predictor = nn.Linear(self.num_residues, self.num_residues)      # map attention matrix to n by n correlations
+        if self.out_type == "joint":
+            self.global_corr_predictor = nn.Sequential(
+                nn.Linear(1 + 2 * self.d_model, self.d_model),
+                nn.ReLU(),
+                # nn.Linear( self.d_model,  self.d_model), 
+                # nn.ReLU(),                               
+                nn.Linear( self.d_model, 1) 
+            )
         
+                
         # for stability
         self.epsilon = 1e-6      # regularization to ensure Σ is positive definite and other stability issues
         
@@ -77,36 +82,31 @@ class DynaProt(LightningModule):
         pos_emb = self.position_embedding.expand_as(seq_emb)  # Shape: (batch_size, num_residues, d_model)
         residue_features = seq_emb + pos_emb
 
-        # Initialize pairwise embeddings (e.g., could be contact map or learned, right now is zero)
-        pairwise_embeddings = self.init_pairwise_features(sequence).to(residue_features) 
-
+        # rots = frames.get_rots().get_rot_mats()
+        # trans = frames.get_trans()
+        rots = frames[..., :3, :3]
+        trans = frames[..., :3, 3]
+        
         # IPA blocks
         for i,ipa in enumerate(self.ipa_blocks):
-            if i == len(self.ipa_blocks) - 1:
-                residue_features, attn =  ipa(single_repr=residue_features, rotations=frames.get_rots().get_rot_mats(),translations=frames.get_trans(), mask=mask.bool(), return_attn=True)
-            else:
-                residue_features = ipa(single_repr=residue_features, rotations=frames.get_rots().get_rot_mats(),translations=frames.get_trans(), mask=mask.bool())
-            # residue_features = self.ff(residue_features)
+            residue_features, attn =  ipa(single_repr=residue_features, rotations=rots,translations=trans, mask=mask.bool(), return_attn= (i == len(self.ipa_blocks) - 1))
             residue_features = self.dropout(residue_features)
             
-        # for ipa_block in self.ipa_blocks:
-        #     residue_features = ipa_block(x=residue_features, rotations=frames.get_rots().get_rot_mats(),translations=frames.get_trans(), mask=mask.bool())
-
-        # covars, covars_clipped = self.pred_covars_direct(residue_features=residue_features)
-        preds = dict(
-            # means = self.pred_mean(residue_features),      # Shape: (batch_size, num_residues, 3)
-            covars = self.pred_covars(residue_features),    # Shape: (batch_size, num_residues, 3, 3)
-            # covars = covars,
-            # covars_clipped = covars_clipped,
-            # corrs = self.pred_corrs(attn),
-        )
-
+        # preds = dict(
+        #     covars = self.pred_covars(residue_features) if self.out_type == "local" else None,    # Shape: (batch_size, num_residues, 3, 3)
+        #     corrs = self.pred_corrs(residue_features, attn) if self.out_type == "global" else None,   # (batch_size, num_residues, num_residues)
+        # )
+        preds = dict()
+        if self.out_type == "marginal":
+            preds["covars"] = self.pred_covars(residue_features)    # Shape: (batch_size, num_residues, 3, 3)
+        if self.out_type == "joint":
+            preds["corrs"] = self.pred_corrs(residue_features, attn)   # (batch_size, num_residues, num_residues)
         return preds
 
 
-    def init_pairwise_features(self, sequence):
-        pairwise_features = torch.zeros(sequence.shape[0], self.num_residues, self.num_residues, self.d_model)
-        return pairwise_features
+    # def init_pairwise_features(self, sequence):
+    #     pairwise_features = torch.zeros(sequence.shape[0], self.num_residues, self.num_residues, self.d_model)
+    #     return pairwise_features
 
 
     def pred_mean(self, residue_features):
@@ -182,34 +182,69 @@ class DynaProt(LightningModule):
         )
         return covars, covars_clipped
     
-    
-    def pred_corrs(self, attention, lambda_min=0.1):
-        L_entries= self.global_corr_predictor(attention)
+
+    def pred_corrs(self, residue_features, attention):
         
-        L_diag_old = torch.diagonal(L_entries, dim1=-2, dim2=-1)
-        L_diag = F.softplus(L_diag_old) + self.epsilon
-        # print(L_diag_old.shape)
-        L = L_entries - torch.diag_embed(L_diag_old) + torch.diag_embed(L_diag)
-        # print(L[0])
-        covars = L @ L.transpose(-1, -2)   # (b,n,n)
-        variances = torch.diagonal(covars, dim1=-2, dim2=-1)  # (b, n)
-        sd = torch.sqrt(variances + self.epsilon).unsqueeze(-1) # (b, n, 1)
-        # print(sd)
-        corrs = covars/(sd @ sd.transpose(-1,-2))
-        # print(corrs.shape)
-        # print(corrs[0])
+        b = attention.shape[0]
+        n = self.num_residues
+        device = attention.device
+        num_cholesky_entries = int(n*(n+1)/2)
+        
+        tril_indices = torch.tril_indices(row=n, col=n, offset=0, device=device)
+        flat_attn_lower_tri = attention[:, tril_indices[0], tril_indices[1]] #  (b, n*(n+1)/2)
+
+        features_i = residue_features[:, tril_indices[0], :] # (b, n*(n+1)/2, d_model)
+        features_j = residue_features[:, tril_indices[1], :] # (b, n*(n+1)/2, d_model)
+
+        combined_features = torch.cat(  
+                (flat_attn_lower_tri.unsqueeze(-1),     # (b, n*(n+1)/2, 1)
+                 features_i,                            # (b, n*(n+1)/2, d_model)
+                 features_j),                           # (b, n*(n+1)/2, d_model)
+                dim=-1
+            )                                           # resulting shape (b, n*(n+1)/2, 2*d_model + 1)
+        
+        features_reshaped = combined_features.view(-1, 2*self.d_model + 1)
+        flat_L_entries = self.global_corr_predictor(features_reshaped).view(b, num_cholesky_entries)
+        
+        L = torch.zeros(b, n, n, device=device)
+        L[:, tril_indices[0], tril_indices[1]] = flat_L_entries
+
+        diag_indices = torch.arange(n, device=device)
+        L_diag_old = L[:, diag_indices, diag_indices]
+        L_diag_new = F.softplus(L_diag_old) + self.epsilon                              # ensuring positivity on the diagonal of L
+        L = L - torch.diag_embed(L_diag_old) + torch.diag_embed(L_diag_new)
+
+        covars = L @ L.transpose(-1, -2) # Shape: (b, n, n)
+        return covars
+
+        variances = torch.diagonal(covars, dim1=-2, dim2=-1)
+        sd = torch.sqrt(torch.clamp(variances, min=self.epsilon)).unsqueeze(-1)
+        denominator = sd @ sd.transpose(-1, -2)
+        corrs = covars / (denominator + self.epsilon)
+        corrs = torch.clamp(corrs, min=-1.0, max=1.0)
+        
         return corrs
-        
+    
+
+    def on_before_batch_transfer(self, batch, dataloader_idx):
+        typ = next(self.parameters()).dtype
+        if typ  == torch.float64:
+            for k, v in batch.items():
+                if torch.is_tensor(v) and torch.is_floating_point(v):
+                    batch[k] = v.double()
+        elif typ == torch.float32:
+           for k, v in batch.items():
+                if torch.is_tensor(v) and torch.is_floating_point(v):
+                    batch[k] = v.float()
+        return batch
     
     
-    def on_before_optimizer_step(self, optimizer):
-        parameters = self.parameters()
-        clip_grad_norm_(parameters, self.cfg["train_params"]["grad_clip_norm"])
-        
-    
-        
     def training_step(self, batch, batch_idx):
-        preds = self(batch["aatype"].argmax(dim=-1), Rigid.from_tensor_4x4(batch["frames"]), batch["resi_pad_mask"])
+        
+        optimizer = self.optimizers()
+        # preds = self(batch["aatype"].argmax(dim=-1), Rigid.from_tensor_4x4(batch["frames"]), batch["resi_pad_mask"])
+        preds = self(batch["aatype"].argmax(dim=-1), batch["frames"], batch["resi_pad_mask"])
+        
         total_loss, loss_dict = self.loss(preds, batch)
 
         if self.global_step % 10 == 0:
@@ -227,13 +262,33 @@ class DynaProt(LightningModule):
             lr = self.optimizers().param_groups[0]["lr"]
             self.logger.experiment["train/learning_rate"].append(lr, step=self.global_step)
 
+        optimizer.zero_grad()
+        self.manual_backward(total_loss)
+        
+        print("Checking gradients IMMEDIATELY after loss.backward()...")
+        found_nan_inf_grad = False
+        for name, p in self.named_parameters(): # Or model.named_parameters()
+            if p.grad is not None:
+                if torch.isnan(p.grad).any() or torch.isinf(p.grad).any():
+                    print(f"  !!! NaN/Inf gradient found in parameter '{name}' BEFORE clipping !!!")
+                    found_nan_inf_grad = True
+            elif p.requires_grad:
+                print(f"  !!! Grad is None for parameter '{name}' which requires_grad !!!") # Should not happen if backward completed
+        if not found_nan_inf_grad:
+            print("  No NaN/Inf gradients found before clipping.")
+        else:
+            # Optional: stop here if bad grads found
+            raise ValueError("NaN/Inf gradient detected before clipping")
+        self.clip_gradients(optimizer, gradient_clip_val=self.grad_clip_val, gradient_clip_algorithm="norm")        
+        optimizer.step()
+
         return total_loss
     
     
     def validation_step(self, batch, batch_idx):    # called every epoch
-        preds = self(batch["aatype"].argmax(dim=-1), Rigid.from_tensor_4x4(batch["frames"]), batch["resi_pad_mask"])
+        # preds = self(batch["aatype"].argmax(dim=-1), Rigid.from_tensor_4x4(batch["frames"]), batch["resi_pad_mask"])
+        preds = self(batch["aatype"].argmax(dim=-1), batch["frames"], batch["resi_pad_mask"])
         total_loss, loss_dict = self.loss(preds, batch)
-
 
         for dynamics_type, losses in loss_dict.items():
             for loss_name, loss_value in losses.items():
@@ -246,68 +301,4 @@ class DynaProt(LightningModule):
         if self.trainer.is_global_zero:                   
             self.logger.experiment["val/total_loss"].append(total_loss_all_ranks, step=self.global_step)
         return total_loss
-    
-    
-    
-    # def test_step(self, batch, batch_idx):    # called every epoch
-    #     preds = self(batch["aatype"].argmax(dim=-1), Rigid.from_tensor_4x4(batch["frames"]), batch["resi_pad_mask"])
-    #     total_loss, loss_dict = self.loss(preds, batch)
-
-
-    #     for dynamics_type, losses in loss_dict.items():
-    #         for loss_name, loss_value in losses.items():
-    #             log_key = f"val/{dynamics_type}/{loss_name}"
-    #             loss_all_ranks = self.all_gather(loss_value).mean()
-    #             if self.trainer.is_global_zero:
-    #                 self.logger.experiment[log_key].append(loss_all_ranks, step=self.current_epoch) 
-                           
-    #     total_loss_all_ranks = self.all_gather(total_loss.detach()).mean()
-    #     if self.trainer.is_global_zero:                   
-    #         self.logger.experiment["val/total_loss"].append(total_loss_all_ranks, step=self.current_epoch)
-    #     return total_loss
-    
-    # def training_step(self, batch, batch_idx):
-        
-    #     preds = self(batch["aatype"].argmax(dim=-1), Rigid.from_tensor_4x4(batch["frames"]), batch["resi_pad_mask"])
-
-    #     total_loss, loss_dict = self.loss(preds, batch)
-        
-    #     # if self.trainer.is_global_zero:
-    #     for dynamics_type, losses in loss_dict.items():
-    #         for loss_name, loss_value in losses.items():
-    #             log_key = f"{dynamics_type}/{loss_name}"
-    #             self.log(log_key,loss_value,on_epoch=False,on_step=True, sync_dist=True)
-    #             # if self.logger is not None:
-    #             # self.logger.experiment[log_key].append(loss_value, step=self.global_step)
-    #     # Log the loss and return
-    #     # self.log_dict({"train_losses/total_loss":total_loss})
-    #     # if self.logger is not None:
-    #     # self.logger.experiment["train_losses/total_loss"].append(total_loss, step=self.global_step)
-    #     self.log("total_loss",total_loss,on_epoch=False,on_step=True, sync_dist=True)
-        
-    #     optimizer = self.optimizers()
-    #     current_lr = optimizer.param_groups[0]['lr']
-    #     self.log("learning_rate",current_lr,on_epoch=False,on_step=True, sync_dist=True)
-    #     # self.logger.experiment["train/learning_rate"].append(current_lr, step=self.global_step)
-    
-    #     return total_loss
-
-
-    # def validation_step(self, batch, batch_idx):
-    #     preds = self(batch["aatype"].argmax(dim=-1), Rigid.from_tensor_4x4(batch["frames"]), batch["resi_pad_mask"])
-
-    #     total_loss, loss_dict = self.loss(preds, batch)
-    #     for dynamics_type, losses in loss_dict.items():
-    #         for loss_name, loss_value in losses.items():
-    #             log_key = f"validation/{dynamics_type}/{loss_name}"
-    #             self.log(log_key,loss_value,on_epoch=True,on_step=False,sync_dist=True)
-    #             # self.log_dict({log_key:loss_value})
-    #             # if self.logger is not None:
-    #             # self.logger.experiment[log_key].append(loss_value, step=self.global_step)
-    #     # Log the loss and return
-    #     # self.log_dict({"train_losses/total_loss":total_loss})
-    #     # if self.logger is not None:
-    #     # self.logger.experiment["val_losses/total_loss"].append(total_loss, step=self.global_step)
-    #     self.log("validation/total_loss",total_loss,on_epoch=True,on_step=False,sync_dist=True)
-    #     return total_loss
     
