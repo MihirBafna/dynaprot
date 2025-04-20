@@ -32,7 +32,7 @@ class DynaProtLoss(torch.nn.Module):
 
         true_means = batch["dynamics_means"][mask]
 
-        if self.cfg["train_params"]["out_type"] == "marginal":
+        if "marginal" in self.cfg["train_params"]["out_type"]:
             true_covars = batch["dynamics_covars_local"][mask]
             predicted_covars =  preds["covars"][mask]
             true_rmsfs = metrics.compute_rmsf_from_covariances(true_covars.detach()).cpu()
@@ -56,7 +56,7 @@ class DynaProtLoss(torch.nn.Module):
                 corr_pcc = metrics.rmsf_correlation(true_rmsfs, pred_rmsfs, type="pearson") if loss_weights["resi_rmsf"]["corr_pcc"] is not None else None,
             )
             
-        if self.cfg["train_params"]["out_type"] == "joint":
+        if "joint" in self.cfg["train_params"]["out_type"]:
             padded_true_corrs = batch["dynamics_correlations_nbyncovar"]
             # padded_true_corrs = batch["dynamics_correlations_sum"]
             padded_pred_corrs = preds["corrs"]
@@ -64,7 +64,7 @@ class DynaProtLoss(torch.nn.Module):
             true_corrs =  [padded_true_corrs[i, :num_res[i], :num_res[i]] for i in range(mask.shape[0])]
             predicted_corrs = [padded_pred_corrs[i, :num_res[i], :num_res[i]] for i in range(mask.shape[0])]
         
-        
+
             loss_dict["resi_correlations"] = dict(
                 log_frob_norm = metrics.log_frobenius_norm_ragged(predicted_corrs, true_corrs)  if loss_weights["resi_correlations"]["log_frob_norm"] is not None else None,
                 mse=metrics.mse_ragged(predicted_corrs, true_corrs) if loss_weights["resi_correlations"]["mse"] is not None else None,

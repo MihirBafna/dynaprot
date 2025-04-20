@@ -9,5 +9,5 @@ protein_chains_path: "/data/cb/mihirb14/projects/dynaprot/dynaprot/data/preproce
 augmented: True
 
 # Data Preprocessing Config:
-max_num_residues: 40
+max_num_residues: 512
 

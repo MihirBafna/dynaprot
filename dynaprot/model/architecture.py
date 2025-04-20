@@ -7,10 +7,13 @@ import torch.nn.functional as F
 # from dynaprot.model.operators.of_ipa import InvariantPointAttention as OpenFoldIPA
 from dynaprot.model.operators.lr_ipa import IPABlock as LRIPABlock
 from dynaprot.model.operators.lr_ipa import InvariantPointAttention as LRIPA
+from dynaprot.model.operators.lowrank import LowRankDiagonalReadout
+from dynaprot.model.operators.lr_pairattention import PairwiseAttentionBlock
 from openfold.utils.rigid_utils import  Rigid
 from dynaprot.model.loss import DynaProtLoss
 from torch.nn.utils import clip_grad_norm_
 from torch.optim.lr_scheduler import SequentialLR, LinearLR, CosineAnnealingLR
+from torch.utils.checkpoint import checkpoint_sequential
 
 
 class DynaProt(LightningModule):
@@ -38,18 +41,55 @@ class DynaProt(LightningModule):
 
         self.dropout = nn.Dropout(0.2)
 
-        if self.out_type == "marginal":
+        if "marginal" in self.out_type:
             self.covars_predictor = nn.Linear(self.d_model, 6)  # Predict lower diagonal matrix L (cholesky decomposition) to ensure symmetric psd Σ = LL^T
 
-        if self.out_type == "joint":
-            self.global_corr_predictor = nn.Sequential(
-                nn.Linear(1 + 2 * self.d_model, self.d_model),
-                nn.ReLU(),
-                # nn.Linear( self.d_model,  self.d_model), 
-                # nn.ReLU(),                               
-                nn.Linear( self.d_model, 1) 
-            )
-        
+        if "joint" in self.out_type:
+            # self.global_corr_predictor = nn.Sequential(
+            #     nn.Linear(1 + 2 * self.d_model, self.d_model),
+            #     nn.ReLU(),
+            #     # nn.Linear( self.d_model,  self.d_model), 
+            #     # nn.ReLU(),                               
+            #     nn.Linear( self.d_model, 1) 
+            # )
+            if  "cholesky" in self.out_type:
+                self.global_corr_predictor = self.get_corr_predictor(
+                    input_dim=1 + 2 * self.d_model,
+                    hidden_dim=self.cfg["model_params"].get("readout_hidden_dim", 256),
+                    num_layers=self.cfg["model_params"].get("readout_layers", 4),
+                    dropout=self.cfg["model_params"].get("readout_dropout", 0.1),
+                    use_layernorm=self.cfg["model_params"].get("use_layernorm", False)
+                )
+            elif "lowrank" in self.out_type:
+                self.global_corr_predictor = LowRankDiagonalReadout(
+                        d_model=self.d_model,
+                        rank=self.cfg["model_params"].get("readout_rank", 8),
+                        hidden_dim=self.cfg["model_params"].get("readout_hidden_dim", 256),
+                        num_layers=self.cfg["model_params"].get("readout_layers", 3),
+                        dropout=self.cfg["model_params"].get("readout_dropout", 0.1),
+                        # use_layernorm=self.cfg["model_params"].get("readout_use_layernorm", False)
+                    )
+            elif "joint_pairattention" in self.out_type:
+                
+                self.pairwise_projector = nn.Linear(2 * self.d_model, self.d_model // 4)
+                self.pair_blocks = nn.Sequential(*[
+                    PairwiseAttentionBlock(
+                        dim=self.d_model // 4,
+                        heads=self.cfg["model_params"].get("pair_heads", 2),
+                        dim_head=self.cfg["model_params"].get("pair_dim_head", 8),
+                        dropout=self.cfg["model_params"].get("readout_dropout", 0.1),
+                        global_column_attn=False
+                    )
+                    for _ in range(self.cfg["model_params"].get("pair_blocks", 1))
+                ])
+                
+                self.global_corr_predictor = self.get_corr_predictor(
+                    input_dim=self.d_model // 4,
+                    hidden_dim=self.cfg["model_params"].get("readout_hidden_dim"),
+                    num_layers=self.cfg["model_params"].get("readout_layers", 4),
+                    dropout=self.cfg["model_params"].get("readout_dropout", 0.1),
+                    use_layernorm=self.cfg["model_params"].get("use_layernorm", False)
+                )
                 
         # for stability
         self.epsilon = 1e-6      # regularization to ensure Σ is positive definite and other stability issues
@@ -76,6 +116,22 @@ class DynaProt(LightningModule):
             }
 
 
+    
+    def get_corr_predictor(self, input_dim, hidden_dim, num_layers=3, dropout=0.1, use_layernorm=False):
+        layers = []
+        for i in range(num_layers):
+            in_dim = input_dim if i == 0 else hidden_dim
+            layers.append(nn.Linear(in_dim, hidden_dim))
+            if use_layernorm:
+                layers.append(nn.LayerNorm(hidden_dim))
+            layers.append(nn.ReLU())
+            if dropout > 0:
+                layers.append(nn.Dropout(dropout))
+        layers.append(nn.Linear(hidden_dim, 1))
+        return nn.Sequential(*layers)
+    
+    
+
     def forward(self, sequence, frames, mask):  # what to do with mask at inference?
         seq_emb = self.sequence_embedding(sequence)  # Shape: (batch_size, num_residues, d_model)
 
@@ -97,9 +153,9 @@ class DynaProt(LightningModule):
         #     corrs = self.pred_corrs(residue_features, attn) if self.out_type == "global" else None,   # (batch_size, num_residues, num_residues)
         # )
         preds = dict()
-        if self.out_type == "marginal":
+        if "marginal" in self.out_type:
             preds["covars"] = self.pred_covars(residue_features)    # Shape: (batch_size, num_residues, 3, 3)
-        if self.out_type == "joint":
+        if "joint" in self.out_type:
             preds["corrs"] = self.pred_corrs(residue_features, attn)   # (batch_size, num_residues, num_residues)
         return preds
 
@@ -184,47 +240,81 @@ class DynaProt(LightningModule):
     
 
     def pred_corrs(self, residue_features, attention):
-        
-        b = attention.shape[0]
-        n = self.num_residues
-        device = attention.device
-        num_cholesky_entries = int(n*(n+1)/2)
-        
-        tril_indices = torch.tril_indices(row=n, col=n, offset=0, device=device)
-        flat_attn_lower_tri = attention[:, tril_indices[0], tril_indices[1]] #  (b, n*(n+1)/2)
+        if  "cholesky" in self.out_type:
 
-        features_i = residue_features[:, tril_indices[0], :] # (b, n*(n+1)/2, d_model)
-        features_j = residue_features[:, tril_indices[1], :] # (b, n*(n+1)/2, d_model)
+            b = attention.shape[0]
+            n = self.num_residues
+            device = attention.device
+            num_cholesky_entries = int(n*(n+1)/2)
+            
+            tril_indices = torch.tril_indices(row=n, col=n, offset=0, device=device)
+            flat_attn_lower_tri = attention[:, tril_indices[0], tril_indices[1]] #  (b, n*(n+1)/2)
 
-        combined_features = torch.cat(  
-                (flat_attn_lower_tri.unsqueeze(-1),     # (b, n*(n+1)/2, 1)
-                 features_i,                            # (b, n*(n+1)/2, d_model)
-                 features_j),                           # (b, n*(n+1)/2, d_model)
-                dim=-1
-            )                                           # resulting shape (b, n*(n+1)/2, 2*d_model + 1)
+            features_i = residue_features[:, tril_indices[0], :] # (b, n*(n+1)/2, d_model)
+            features_j = residue_features[:, tril_indices[1], :] # (b, n*(n+1)/2, d_model)
+
+            combined_features = torch.cat(  
+                    (flat_attn_lower_tri.unsqueeze(-1),     # (b, n*(n+1)/2, 1)
+                    features_i,                            # (b, n*(n+1)/2, d_model)
+                    features_j),                           # (b, n*(n+1)/2, d_model)
+                    dim=-1
+                )                                           # resulting shape (b, n*(n+1)/2, 2*d_model + 1)
+            
+            features_reshaped = combined_features.view(-1, 2*self.d_model + 1)
+            flat_L_entries = self.global_corr_predictor(features_reshaped).view(b, num_cholesky_entries)
+            
+            L = torch.zeros(b, n, n, device=device)
+            L[:, tril_indices[0], tril_indices[1]] = flat_L_entries
+
+            diag_indices = torch.arange(n, device=device)
+            L_diag_old = L[:, diag_indices, diag_indices]
+            L_diag_new = F.softplus(L_diag_old) + self.epsilon                              # ensuring positivity on the diagonal of L
+            L = L - torch.diag_embed(L_diag_old) + torch.diag_embed(L_diag_new)
+
+            covars = L @ L.transpose(-1, -2) # Shape: (b, n, n)
+            return covars
+
+            variances = torch.diagonal(covars, dim1=-2, dim2=-1)
+            sd = torch.sqrt(torch.clamp(variances, min=self.epsilon)).unsqueeze(-1)
+            denominator = sd @ sd.transpose(-1, -2)
+            corrs = covars / (denominator + self.epsilon)
+            corrs = torch.clamp(corrs, min=-1.0, max=1.0)
+            
+            return corrs
         
-        features_reshaped = combined_features.view(-1, 2*self.d_model + 1)
-        flat_L_entries = self.global_corr_predictor(features_reshaped).view(b, num_cholesky_entries)
+        elif "lowrank" in self.out_type:
+            
+            return self.global_corr_predictor(residue_features, attention)
         
-        L = torch.zeros(b, n, n, device=device)
-        L[:, tril_indices[0], tril_indices[1]] = flat_L_entries
+        elif "pairattention" in self.out_type:
+            B, N, D = residue_features.shape
+            h_i = residue_features.unsqueeze(2).expand(B, N, N, D)
+            h_j = residue_features.unsqueeze(1).expand(B, N, N, D)
+            pairwise_input = torch.cat([h_i, h_j], dim=-1)  # (B, N, N, 2D)
+            del h_i, h_j
+            
+            pairwise_input = self.pairwise_projector(pairwise_input)  # (B, N, N, D)
+            
+            pairwise_output = self.pair_blocks(pairwise_input)  # (B, N, N, 2D)
+            # pairwise_output = checkpoint_sequential(self.pair_blocks, len(self.pair_blocks), pairwise_input, use_reentrant=True)  # (B, N, N, 2D)
 
-        diag_indices = torch.arange(n, device=device)
-        L_diag_old = L[:, diag_indices, diag_indices]
-        L_diag_new = F.softplus(L_diag_old) + self.epsilon                              # ensuring positivity on the diagonal of L
-        L = L - torch.diag_embed(L_diag_old) + torch.diag_embed(L_diag_new)
+            tril = torch.tril_indices(N, N, 0, device=residue_features.device)
+            z_ij = pairwise_output[:, tril[0], tril[1]]  # (B, num_pairs, 2D)
 
-        covars = L @ L.transpose(-1, -2) # Shape: (b, n, n)
-        return covars
+            # Now run through the original global_corr_predictor
+            flat_L_entries = self.global_corr_predictor(z_ij).view(B, -1)
 
-        variances = torch.diagonal(covars, dim1=-2, dim2=-1)
-        sd = torch.sqrt(torch.clamp(variances, min=self.epsilon)).unsqueeze(-1)
-        denominator = sd @ sd.transpose(-1, -2)
-        corrs = covars / (denominator + self.epsilon)
-        corrs = torch.clamp(corrs, min=-1.0, max=1.0)
-        
-        return corrs
-    
+            # Reconstruct L from flat entries
+            L = torch.zeros(B, N, N, device=residue_features.device)
+            L[:, tril[0], tril[1]] = flat_L_entries
+
+            diag_indices = torch.arange(N, device=residue_features.device)
+            L_diag_old = L[:, diag_indices, diag_indices]
+            L_diag_new = F.softplus(L_diag_old) + self.epsilon
+            L = L - torch.diag_embed(L_diag_old) + torch.diag_embed(L_diag_new)
+
+            covars = L @ L.transpose(-1, -2)
+            return covars
 
     def on_before_batch_transfer(self, batch, dataloader_idx):
         typ = next(self.parameters()).dtype
@@ -265,20 +355,20 @@ class DynaProt(LightningModule):
         optimizer.zero_grad()
         self.manual_backward(total_loss)
         
-        print("Checking gradients IMMEDIATELY after loss.backward()...")
-        found_nan_inf_grad = False
-        for name, p in self.named_parameters(): # Or model.named_parameters()
-            if p.grad is not None:
-                if torch.isnan(p.grad).any() or torch.isinf(p.grad).any():
-                    print(f"  !!! NaN/Inf gradient found in parameter '{name}' BEFORE clipping !!!")
-                    found_nan_inf_grad = True
-            elif p.requires_grad:
-                print(f"  !!! Grad is None for parameter '{name}' which requires_grad !!!") # Should not happen if backward completed
-        if not found_nan_inf_grad:
-            print("  No NaN/Inf gradients found before clipping.")
-        else:
-            # Optional: stop here if bad grads found
-            raise ValueError("NaN/Inf gradient detected before clipping")
+        # print("Checking gradients IMMEDIATELY after loss.backward()...")
+        # found_nan_inf_grad = False
+        # for name, p in self.named_parameters(): # Or model.named_parameters()
+        #     if p.grad is not None:
+        #         if torch.isnan(p.grad).any() or torch.isinf(p.grad).any():
+        #             print(f"  !!! NaN/Inf gradient found in parameter '{name}' BEFORE clipping !!!")
+        #             found_nan_inf_grad = True
+        #     elif p.requires_grad:
+        #         print(f"  !!! Grad is None for parameter '{name}' which requires_grad !!!") # Should not happen if backward completed
+        # if not found_nan_inf_grad:
+        #     print("  No NaN/Inf gradients found before clipping.")
+        # else:
+        #     # Optional: stop here if bad grads found
+        #     raise ValueError("NaN/Inf gradient detected before clipping")
         self.clip_gradients(optimizer, gradient_clip_val=self.grad_clip_val, gradient_clip_algorithm="norm")        
         optimizer.step()
 

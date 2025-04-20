@@ -99,6 +99,8 @@ def main():
             log_model_checkpoints=model_config["train_params"].get("log_model_checkpoints", True)
         )
     
+    print(model)
+    
     trainer = pl.Trainer(
         max_epochs=model_config["train_params"]["epochs"],
         logger=neptune_logger,

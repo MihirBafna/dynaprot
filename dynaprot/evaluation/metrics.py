@@ -252,29 +252,29 @@ def log_frobenius_norm_ragged(pred_matrix_list, gt_matrix_list):
     """
     assert len(pred_matrix_list) == len(gt_matrix_list), "Batch size mismatch"
 
-    # distances = []
-    # successful_count = 0
-    # for i, (pred_m, gt_m) in enumerate(zip(pred_matrix_list, gt_matrix_list)):
-    #     try:
-    #         dist = log_frobenius_norm(pred_m, gt_m)
-    #         distances.append(dist)
-    #         successful_count += 1
-    #     except torch._C._LinAlgError as e:
-    #         print(f"Skipping item {i} due to LinAlgError: {e}")
-    #         # Optionally save matrices for debugging
-    #         # torch.save(...)
-    #         continue 
+    distances = []
+    successful_count = 0
+    for i, (pred_m, gt_m) in enumerate(zip(pred_matrix_list, gt_matrix_list)):
+        try:
+            dist = log_frobenius_norm(pred_m, gt_m)
+            distances.append(dist)
+            successful_count += 1
+        except torch._C._LinAlgError as e:
+            print(f"Skipping item {i} due to LinAlgError: {e}")
+            # Optionally save matrices for debugging
+            # torch.save(...)
+            continue 
 
-    # if successful_count == 0:
-    #     # Handle cases where the entire batch failed
-    #     print("Warning: Entire batch failed log_frobenius_norm calculation.")
-    #     # Return 0 loss but ensure it doesn't propagate gradients if desired
-    #     # Or return a tensor indicating failure
-    #     return torch.tensor(0.0, device=pred_matrix_list[0].device, requires_grad=False)
+    if successful_count == 0:
+        # Handle cases where the entire batch failed
+        print("Warning: Entire batch failed log_frobenius_norm calculation.")
+        # Return 0 loss but ensure it doesn't propagate gradients if desired
+        # Or return a tensor indicating failure
+        return torch.tensor(0.0, device=pred_matrix_list[0].device, requires_grad=False)
 
-    # mean_loss = torch.stack(distances).mean()
-    # return mean_loss
-    distances = torch.stack([log_frobenius_norm(pred_cov, gt_cov) for pred_cov, gt_cov in zip(pred_matrix_list, gt_matrix_list)])
+    mean_loss = torch.stack(distances).mean()
+    return mean_loss
+    # distances = torch.stack([log_frobenius_norm(pred_cov, gt_cov) for pred_cov, gt_cov in zip(pred_matrix_list, gt_matrix_list)])
 
     return distances.mean()
 
