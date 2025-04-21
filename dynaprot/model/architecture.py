@@ -32,6 +32,12 @@ class DynaProt(LightningModule):
         self.position_embedding = nn.Parameter(torch.zeros(1, self.num_residues, self.d_model))
 
         self.automatic_optimization = False
+        self.grad_accum_batches = cfg["train_params"].get("accumulate_grad_batches", 1)
+        self._grad_accum_counter = 0
+        self._opt_step_counter = 0
+        self._loss_accumulator = 0.0
+        self._loss_steps = 0
+
         self.out_type = self.cfg["train_params"]["out_type"]
         # IPA layers
         # self.ipa_blocks = nn.ModuleList([OpenFoldIPA(c_s=self.d_model,c_z=self.d_model,c_hidden=16,no_heads=4,no_qk_points=4,no_v_points=8) for _ in range(self.num_ipa_blocks)])
@@ -70,11 +76,11 @@ class DynaProt(LightningModule):
                         # use_layernorm=self.cfg["model_params"].get("readout_use_layernorm", False)
                     )
             elif "joint_pairattention" in self.out_type:
-                
-                self.pairwise_projector = nn.Linear(2 * self.d_model, self.d_model // 4)
+                self.pair_divisor = self.cfg["model_params"].get("pair_divisor", 4)
+                self.pairwise_projector = nn.Linear(2 * self.d_model, self.d_model // self.pair_divisor)
                 self.pair_blocks = nn.Sequential(*[
                     PairwiseAttentionBlock(
-                        dim=self.d_model // 4,
+                        dim=self.d_model // self.pair_divisor,
                         heads=self.cfg["model_params"].get("pair_heads", 2),
                         dim_head=self.cfg["model_params"].get("pair_dim_head", 8),
                         dropout=self.cfg["model_params"].get("readout_dropout", 0.1),
@@ -84,7 +90,7 @@ class DynaProt(LightningModule):
                 ])
                 
                 self.global_corr_predictor = self.get_corr_predictor(
-                    input_dim=self.d_model // 4,
+                    input_dim=self.d_model // self.pair_divisor,
                     hidden_dim=self.cfg["model_params"].get("readout_hidden_dim"),
                     num_layers=self.cfg["model_params"].get("readout_layers", 4),
                     dropout=self.cfg["model_params"].get("readout_dropout", 0.1),
@@ -330,47 +336,45 @@ class DynaProt(LightningModule):
     
     
     def training_step(self, batch, batch_idx):
-        
         optimizer = self.optimizers()
-        # preds = self(batch["aatype"].argmax(dim=-1), Rigid.from_tensor_4x4(batch["frames"]), batch["resi_pad_mask"])
         preds = self(batch["aatype"].argmax(dim=-1), batch["frames"], batch["resi_pad_mask"])
-        
         total_loss, loss_dict = self.loss(preds, batch)
-
-        if self.global_step % 10 == 0:
-            for dynamics_type, losses in loss_dict.items():
-                for loss_name, loss_value in losses.items():
-                    log_key = f"train/{dynamics_type}/{loss_name}"
-                    loss_all_ranks = self.all_gather(loss_value).mean()
-                    if self.trainer.is_global_zero:
-                        self.logger.experiment[log_key].append(loss_all_ranks, step=self.global_step)
-                        
-            total_loss_all_ranks = self.all_gather(total_loss.detach()).mean()
-            if self.trainer.is_global_zero:
-                self.logger.experiment["train/total_loss"].append(total_loss_all_ranks, step=self.global_step)
-                
-            lr = self.optimizers().param_groups[0]["lr"]
-            self.logger.experiment["train/learning_rate"].append(lr, step=self.global_step)
-
-        optimizer.zero_grad()
         self.manual_backward(total_loss)
         
-        # print("Checking gradients IMMEDIATELY after loss.backward()...")
-        # found_nan_inf_grad = False
-        # for name, p in self.named_parameters(): # Or model.named_parameters()
-        #     if p.grad is not None:
-        #         if torch.isnan(p.grad).any() or torch.isinf(p.grad).any():
-        #             print(f"  !!! NaN/Inf gradient found in parameter '{name}' BEFORE clipping !!!")
-        #             found_nan_inf_grad = True
-        #     elif p.requires_grad:
-        #         print(f"  !!! Grad is None for parameter '{name}' which requires_grad !!!") # Should not happen if backward completed
-        # if not found_nan_inf_grad:
-        #     print("  No NaN/Inf gradients found before clipping.")
-        # else:
-        #     # Optional: stop here if bad grads found
-        #     raise ValueError("NaN/Inf gradient detected before clipping")
-        self.clip_gradients(optimizer, gradient_clip_val=self.grad_clip_val, gradient_clip_algorithm="norm")        
-        optimizer.step()
+        self._grad_accum_counter += 1
+        self._loss_steps += 1
+        self._loss_accumulator += total_loss.detach()
+        
+        if self._grad_accum_counter % self.grad_accum_batches == 0:
+            
+            avg_loss = self._loss_accumulator / self._loss_steps
+
+            self.clip_gradients(
+                optimizer,
+                gradient_clip_val=self.grad_clip_val,
+                gradient_clip_algorithm="norm"
+            )
+            
+            optimizer.step()
+            optimizer.zero_grad()
+
+            if self.global_step % 10 == 0 or self.grad_accum_batches != 1:
+                
+                for dynamics_type, losses in loss_dict.items():
+                    for loss_name, loss_value in losses.items():
+                        log_key = f"train/{dynamics_type}/{loss_name}"
+                        loss_all_ranks = self.all_gather(loss_value).mean()
+                        if self.trainer.is_global_zero:
+                            self.logger.experiment[log_key].append(loss_all_ranks, step=self.global_step * self.grad_accum_batches)
+                            
+                total_loss_all_ranks = self.all_gather(avg_loss).mean()
+                if self.trainer.is_global_zero:
+                    self.logger.experiment["train/total_loss"].append(total_loss_all_ranks.item(), step=self.global_step * self.grad_accum_batches)
+                    self._loss_accumulator = 0.0
+                    self._loss_steps = 0
+                                    
+                lr = self.optimizers().param_groups[0]["lr"]
+                self.logger.experiment["train/learning_rate"].append(lr, step=self.global_step * self.grad_accum_batches)
 
         return total_loss
     
@@ -385,10 +389,10 @@ class DynaProt(LightningModule):
                 log_key = f"val/{dynamics_type}/{loss_name}"
                 loss_all_ranks = self.all_gather(loss_value).mean()
                 if self.trainer.is_global_zero:
-                    self.logger.experiment[log_key].append(loss_all_ranks, step=self.global_step) 
+                    self.logger.experiment[log_key].append(loss_all_ranks, step=self.global_step * self.grad_accum_batches) 
                            
         total_loss_all_ranks = self.all_gather(total_loss.detach()).mean()
         if self.trainer.is_global_zero:                   
-            self.logger.experiment["val/total_loss"].append(total_loss_all_ranks, step=self.global_step)
+            self.logger.experiment["val/total_loss"].append(total_loss_all_ranks, step=self.global_step * self.grad_accum_batches)
         return total_loss
     
