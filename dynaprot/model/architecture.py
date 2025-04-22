@@ -27,9 +27,14 @@ class DynaProt(LightningModule):
         self.warmup_steps = cfg["train_params"]["warmup_steps"]
         self.total_steps = cfg["train_params"]["total_steps"]
         self.grad_clip_val = cfg["train_params"]["grad_clip_norm"]
-        # Embedding layers for sequence and pairwise features
+
+
         self.sequence_embedding = nn.Embedding(21, self.d_model)  # 21 amino acid types
-        self.position_embedding = nn.Parameter(torch.zeros(1, self.num_residues, self.d_model))
+        self.use_sinusoidal = cfg["model_params"].get("use_sinusoidal_pos_emb", False)
+        if self.use_sinusoidal:
+            self.pos_encoder = SinusoidalPositionalEncoding(d_model=self.d_model, max_len=10000)
+        else:
+            self.position_embedding = nn.Parameter(torch.zeros(1, self.num_residues, self.d_model))
 
         self.automatic_optimization = False
         self.grad_accum_batches = cfg["train_params"].get("accumulate_grad_batches", 1)
@@ -141,8 +146,10 @@ class DynaProt(LightningModule):
     def forward(self, sequence, frames, mask):  # what to do with mask at inference?
         seq_emb = self.sequence_embedding(sequence)  # Shape: (batch_size, num_residues, d_model)
 
-        pos_emb = self.position_embedding.expand_as(seq_emb)  # Shape: (batch_size, num_residues, d_model)
-        residue_features = seq_emb + pos_emb
+        if self.use_sinusoidal:
+            residue_features = self.pos_encoder(seq_emb)
+        else:
+            residue_features = seq_emb + self.position_embedding[:, :seq_emb.shape[1], :]
 
         # rots = frames.get_rots().get_rot_mats()
         # trans = frames.get_trans()
@@ -396,3 +403,28 @@ class DynaProt(LightningModule):
             self.logger.experiment["val/total_loss"].append(total_loss_all_ranks, step=self.global_step * self.grad_accum_batches)
         return total_loss
     
+
+
+import math
+
+class SinusoidalPositionalEncoding(nn.Module):
+    def __init__(self, d_model: int, max_len: int = 10000):
+        super().__init__()
+        pe = torch.zeros(max_len, d_model)
+        position = torch.arange(0, max_len, dtype=torch.float32).unsqueeze(1)
+        div_term = torch.exp(torch.arange(0, d_model, 2).float() * (-math.log(10000.0) / d_model))
+
+        pe[:, 0::2] = torch.sin(position * div_term)
+        pe[:, 1::2] = torch.cos(position * div_term)
+
+        self.register_buffer('pe', pe)  # Automatically moves with model to cuda/cpu
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """
+        Args:
+            x: (batch_size, seq_len, d_model)
+        Returns:
+            Tensor with positional encodings added: (batch_size, seq_len, d_model)
+        """
+        seq_len = x.size(1)
+        return x + self.pe[:seq_len].unsqueeze(0).to(x.dtype)
