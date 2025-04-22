@@ -32,8 +32,8 @@ class DynaProt(LightningModule):
         self.use_sinusoidal = cfg["model_params"].get("use_sinusoidal_pos_emb", False)
         if self.use_sinusoidal:
             self.pos_encoder = SinusoidalPositionalEncoding(d_model=self.d_model, max_len=10000)
-        else:
-            self.position_embedding = nn.Parameter(torch.zeros(1, self.num_residues, self.d_model))
+        # else:
+        #     self.position_embedding = nn.Parameter(torch.zeros(1, self.num_residues, self.d_model))
 
         self.automatic_optimization = False
         self.grad_accum_batches = cfg["train_params"].get("accumulate_grad_batches", 1)
@@ -213,11 +213,12 @@ class DynaProt(LightningModule):
         Returns:
             torch.Tensor: Stabilized covariance matrices of shape (batch_size, num_residues, 3, 3).
         """
+        b, n, _ = residue_features.shape
         
         covar_entries = self.covars_predictor(residue_features) # Predict the 6 L entries
 
         covars = torch.zeros(
-            residue_features.shape[0], self.num_residues, 3, 3, device=covar_entries.device
+            b, n, 3, 3, device=covar_entries.device
         )
         i = 0
         for c in range(3):
