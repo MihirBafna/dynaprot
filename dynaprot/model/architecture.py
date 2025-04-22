@@ -143,7 +143,7 @@ class DynaProt(LightningModule):
     
     
 
-    def forward(self, sequence, frames, mask):  # what to do with mask at inference?
+    def forward(self, sequence, frames, mask):  # mask is just seq length at inference time
         seq_emb = self.sequence_embedding(sequence)  # Shape: (batch_size, num_residues, d_model)
 
         if self.use_sinusoidal:

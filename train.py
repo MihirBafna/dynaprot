@@ -32,11 +32,14 @@ def load_config(config_path):
 
 def main():
     args = parse_args()
-    set_seed(42)
+ 
     
     data_config = load_config(args.data_config)
     model_config = load_config(args.model_config)
     model_config["data_config"] = data_config
+    
+    data_config["seed"] = 42
+    set_seed(data_config["seed"])
     
     model_config["train_params"]["neptune_api_key"] = os.getenv("NEPTUNE_API_TOKEN")
 

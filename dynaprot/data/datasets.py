@@ -6,7 +6,7 @@ from openfold.np.protein import from_pdb_string, Protein
 import numpy as np
 import pandas as pd
 import random
-from dynaprot.data.transforms import make_fixed_size
+from dynaprot.data.transforms import make_fixed_size, crop_and_pad_to_fixed_size
 from dynaprot.data.utils import dict_multimap
 
 class DynaProtDataset(Dataset):
@@ -22,6 +22,7 @@ class DynaProtDataset(Dataset):
             self.protein_list = np.load(path)
         # self.protein_list = [prot for prot in os.listdir(self.data_dir) if os.path.isdir(os.path.join(self.data_dir, prot))]  # dynamics dataset protein list
         self.augmented = cfg["augmented"]
+        self.random_cropping = cfg["random_cropping"]
 
     def __len__(self):
         return len(self.protein_list)
@@ -47,8 +48,16 @@ class DynaProtDataset(Dataset):
             if "dynamics_fullcovar" in k or "dynamics_correlations" in k: # make better this is basically j hardcoded
                 schema[1] = "NUM_RES"
             shape_schema[k] = schema
-        padded_selected_feats = make_fixed_size(prot_feat_dict,shape_schema, num_residues = self.cfg["max_num_residues"])      
-        # TODO: random cropping for proteins that are larger than max num res
+            
+        if self.random_cropping and self.split == "train":
+            padded_selected_feats = crop_and_pad_to_fixed_size(
+                protein=prot_feat_dict,
+                shape_schema=shape_schema,
+                max_num_residues=self.cfg["max_num_residues"],
+                seed= self.cfg.get("seed", 42) + idx
+            )
+        else:
+            padded_selected_feats = make_fixed_size(prot_feat_dict,shape_schema, num_residues = self.cfg["max_num_residues"])      
         
         return padded_selected_feats
     
