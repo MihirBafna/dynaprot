@@ -194,11 +194,12 @@ class DynaProt(LightningModule):
         Returns:
             torch.Tensor: Stabilized covariance matrices of shape (batch_size, num_residues, 3, 3).
         """
+        b, n, _ = residue_features.shape
         
         L_entries = self.covars_predictor(residue_features) # Predict the 6 L entries
 
         L = torch.zeros(
-            residue_features.shape[0], self.num_residues, 3, 3, device=L_entries.device
+            b, n, 3, 3, device=L_entries.device
         )
         i = 0
         for c in range(3):

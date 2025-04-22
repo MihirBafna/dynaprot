@@ -22,7 +22,9 @@ class DynaProtDataset(Dataset):
             self.protein_list = np.load(path)
         # self.protein_list = [prot for prot in os.listdir(self.data_dir) if os.path.isdir(os.path.join(self.data_dir, prot))]  # dynamics dataset protein list
         self.augmented = cfg["augmented"]
-        self.random_cropping = cfg["random_cropping"]
+        self.random_cropping = cfg.get("random_cropping", True)
+        if self.random_cropping:
+            print("Utilizing random crops")
 
     def __len__(self):
         return len(self.protein_list)
@@ -31,16 +33,18 @@ class DynaProtDataset(Dataset):
         protein_id = self.protein_list[idx]
         # replicate_num = random.choice(self.replicates) if self.split == "train" else 1
         prot_feat_dict = torch.load(os.path.join(self.data_dir,protein_id,f"{protein_id}.pt"))
+        prot_feat_dict["aatype"] = torch.eye(21)[prot_feat_dict["aatype"]]
+        prot_feat_dict["resi_pad_mask"] = torch.ones(prot_feat_dict["aatype"].shape[0])   
+        
+        if self.split == "test":
+            return prot_feat_dict
         
         if self.augmented and self.split == "train":  # data augmentation (taking input struc as random frame in md trajectory)
             additional_frames = os.listdir(os.path.join(self.data_dir,protein_id,"frames"))
             chosen = os.path.join(self.data_dir,protein_id,"frames",random.choice(additional_frames))
             # print(chosen)
             prot_feat_dict["frames"] = torch.load(chosen)["frames"]
-            
-        prot_feat_dict["aatype"] = torch.eye(21)[prot_feat_dict["aatype"]]
-        prot_feat_dict["resi_pad_mask"] = torch.ones(prot_feat_dict["aatype"].shape[0])   
-        # del prot_feat_dict["dynamics_fullcovar"], prot_feat_dict["dynamics_correlations"] # temporary ignoring full covar
+
         shape_schema = {}
         for k in prot_feat_dict.keys():
             schema = list(prot_feat_dict[k].size())
