@@ -10,6 +10,7 @@ from einops import rearrange, repeat, reduce
 from einops.layers.torch import Rearrange
 
 
+'''---------------------------- lucidrains implementation (https://github.com/lucidrains/alphafold2/blob/main/alphafold2_pytorch/alphafold2.py) -------------------------------------------'''
 
 # helpers
 
