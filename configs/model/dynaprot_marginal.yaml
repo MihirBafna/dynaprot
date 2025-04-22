@@ -4,6 +4,8 @@
 model_params:
   num_ipa_blocks: 8
   d_model: 128
+  use_sinusoidal_pos_emb: true
+  marginal_readout_layers: 1
 
 train_params:
   precision: 32

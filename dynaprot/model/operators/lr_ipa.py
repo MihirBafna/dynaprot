@@ -200,24 +200,22 @@ class InvariantPointAttention(nn.Module):
         else:
             return self.to_out(results), None
 
-# one transformer block based on IPA
 
-def FeedForward(dim, mult = 1., num_layers = 2, act = nn.ReLU):
+def FeedForward(dim, mult=1., num_layers=2, act=nn.ReLU, output_dim=None):
+    if num_layers == 1:
+        final_out = output_dim if output_dim is not None else dim
+        return nn.Linear(dim, final_out)
+
     layers = []
-    dim_hidden = dim * mult
+    dim_hidden = int(dim * mult)
+    final_out = output_dim if output_dim is not None else dim
 
     for ind in range(num_layers):
-        is_first = ind == 0
-        is_last  = ind == (num_layers - 1)
-        dim_in   = dim if is_first else dim_hidden
-        dim_out  = dim if is_last else dim_hidden
-
+        dim_in = dim if ind == 0 else dim_hidden
+        dim_out = final_out if ind == (num_layers - 1) else dim_hidden
         layers.append(nn.Linear(dim_in, dim_out))
-
-        if is_last:
-            continue
-
-        layers.append(act())
+        if ind < num_layers - 1:
+            layers.append(act())
 
     return nn.Sequential(*layers)
 

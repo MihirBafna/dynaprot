@@ -3,10 +3,9 @@ import torch.nn as nn
 import torch.optim as optim
 from pytorch_lightning import LightningModule
 import torch.nn.functional as F
-# from openfold.model.structure_module import InvariantPointAttention as OpenFoldIPA
-# from dynaprot.model.operators.of_ipa import InvariantPointAttention as OpenFoldIPA
 from dynaprot.model.operators.lr_ipa import IPABlock as LRIPABlock
 from dynaprot.model.operators.lr_ipa import InvariantPointAttention as LRIPA
+from dynaprot.model.operators.lr_ipa import FeedForward as FF
 from dynaprot.model.operators.lowrank import LowRankDiagonalReadout
 from dynaprot.model.operators.lr_pairattention import PairwiseAttentionBlock
 from openfold.utils.rigid_utils import  Rigid
@@ -53,7 +52,13 @@ class DynaProt(LightningModule):
         self.dropout = nn.Dropout(0.2)
 
         if "marginal" in self.out_type:
-            self.covars_predictor = nn.Linear(self.d_model, 6)  # Predict lower diagonal matrix L (cholesky decomposition) to ensure symmetric psd Σ = LL^T
+            self.covars_predictor = FF(
+                dim=self.d_model,
+                mult=self.cfg["model_params"].get("marginal_readout_mult", 1),
+                num_layers=self.cfg["model_params"].get("marginal_readout_layers", 1),
+                act=nn.ReLU,
+                output_dim=6
+            ) # Predict lower diagonal matrix L (cholesky decomposition) to ensure symmetric psd Σ = LL^T
 
         if "joint" in self.out_type:
             if  "cholesky" in self.out_type:
