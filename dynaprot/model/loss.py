@@ -34,7 +34,7 @@ class DynaProtLoss(torch.nn.Module):
 
         if "marginal" in self.cfg["train_params"]["out_type"]:
             true_covars = batch["dynamics_covars_local"][mask]
-            predicted_covars =  preds["covars"][mask]
+            predicted_covars =  preds["marginal_covars"][mask]
             true_rmsfs = metrics.compute_rmsf_from_covariances(true_covars.detach()).cpu()
             pred_rmsfs = metrics.compute_rmsf_from_covariances(predicted_covars.detach()).cpu()
             
@@ -59,7 +59,7 @@ class DynaProtLoss(torch.nn.Module):
         if "joint" in self.cfg["train_params"]["out_type"]:
             padded_true_corrs = batch["dynamics_correlations_nbyncovar"]
             # padded_true_corrs = batch["dynamics_correlations_sum"]
-            padded_pred_corrs = preds["corrs"]
+            padded_pred_corrs = preds["joint_covar"]
         
             true_corrs =  [padded_true_corrs[i, :num_res[i], :num_res[i]] for i in range(mask.shape[0])]
             predicted_corrs = [padded_pred_corrs[i, :num_res[i], :num_res[i]] for i in range(mask.shape[0])]

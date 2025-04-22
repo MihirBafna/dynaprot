@@ -20,7 +20,7 @@ class DynaProt(LightningModule):
     def __init__(self, cfg):
         super().__init__()
         self.cfg = cfg
-        self.num_residues = cfg["data_config"]["max_num_residues"]
+        # self.num_residues = cfg["data_config"]["max_num_residues"]
         self.num_ipa_blocks = cfg["model_params"]["num_ipa_blocks"]
         self.d_model = cfg["model_params"]["d_model"]
         self.lr = cfg["train_params"]["learning_rate"]
@@ -56,13 +56,6 @@ class DynaProt(LightningModule):
             self.covars_predictor = nn.Linear(self.d_model, 6)  # Predict lower diagonal matrix L (cholesky decomposition) to ensure symmetric psd Σ = LL^T
 
         if "joint" in self.out_type:
-            # self.global_corr_predictor = nn.Sequential(
-            #     nn.Linear(1 + 2 * self.d_model, self.d_model),
-            #     nn.ReLU(),
-            #     # nn.Linear( self.d_model,  self.d_model), 
-            #     # nn.ReLU(),                               
-            #     nn.Linear( self.d_model, 1) 
-            # )
             if  "cholesky" in self.out_type:
                 self.global_corr_predictor = self.get_corr_predictor(
                     input_dim=1 + 2 * self.d_model,
@@ -151,40 +144,30 @@ class DynaProt(LightningModule):
         else:
             residue_features = seq_emb + self.position_embedding[:, :seq_emb.shape[1], :]
 
-        # rots = frames.get_rots().get_rot_mats()
-        # trans = frames.get_trans()
+
         rots = frames[..., :3, :3]
         trans = frames[..., :3, 3]
         
-        # IPA blocks
         for i,ipa in enumerate(self.ipa_blocks):
             residue_features, attn =  ipa(single_repr=residue_features, rotations=rots,translations=trans, mask=mask.bool(), return_attn= (i == len(self.ipa_blocks) - 1))
             residue_features = self.dropout(residue_features)
             
-        # preds = dict(
-        #     covars = self.pred_covars(residue_features) if self.out_type == "local" else None,    # Shape: (batch_size, num_residues, 3, 3)
-        #     corrs = self.pred_corrs(residue_features, attn) if self.out_type == "global" else None,   # (batch_size, num_residues, num_residues)
-        # )
         preds = dict()
         if "marginal" in self.out_type:
-            preds["covars"] = self.pred_covars(residue_features)    # Shape: (batch_size, num_residues, 3, 3)
+            preds["marginal_covars"] = self.pred_marginals(residue_features)    # Shape: (batch_size, num_residues, 3, 3)
         if "joint" in self.out_type:
-            preds["corrs"] = self.pred_corrs(residue_features, attn)   # (batch_size, num_residues, num_residues)
+            preds["joint_covar"] = self.pred_joint(residue_features, attn)   # (batch_size, num_residues, num_residues)
         return preds
 
-
-    # def init_pairwise_features(self, sequence):
-    #     pairwise_features = torch.zeros(sequence.shape[0], self.num_residues, self.num_residues, self.d_model)
-    #     return pairwise_features
 
 
     def pred_mean(self, residue_features):
         return  self.mean_predictor(residue_features)
     
     
-    def pred_covars(self, residue_features, lambda_min=0.5, lambda_max=10, soft_clip=True):
+    def pred_marginals(self, residue_features, lambda_min=0.5, lambda_max=10, soft_clip=True):
         """
-        Predict covariance matrices (by predicting cholesky factor).
+        Predict marginal covariance matrices (by predicting cholesky factor).
 
         Args:
             residue_features (torch.Tensor): Input residue features of shape (batch_size, num_residues, feature_dim).
@@ -196,7 +179,7 @@ class DynaProt(LightningModule):
         """
         b, n, _ = residue_features.shape
         
-        L_entries = self.covars_predictor(residue_features) # Predict the 6 L entries
+        L_entries = self.covars_predictor(residue_features) # predict the 6 L entries
 
         L = torch.zeros(
             b, n, 3, 3, device=L_entries.device
@@ -205,7 +188,7 @@ class DynaProt(LightningModule):
         for c in range(3):
             for r in range(c, 3):
                 if r == c:
-                    L[:, :, r, c] = F.softplus(L_entries[:, :, i])  # Ensure positive variances
+                    L[:, :, r, c] = F.softplus(L_entries[:, :, i])  # ensure positive variances
                 else:
                     L[:, :, r, c] = L_entries[:, :, i]
                 i += 1
@@ -253,11 +236,10 @@ class DynaProt(LightningModule):
         return covars, covars_clipped
     
 
-    def pred_corrs(self, residue_features, attention):
+    def pred_joint(self, residue_features, attention):
         if  "cholesky" in self.out_type:
 
-            b = attention.shape[0]
-            n = self.num_residues
+            b, n, _ = residue_features.shape
             device = attention.device
             num_cholesky_entries = int(n*(n+1)/2)
             
@@ -287,14 +269,6 @@ class DynaProt(LightningModule):
 
             covars = L @ L.transpose(-1, -2) # Shape: (b, n, n)
             return covars
-
-            variances = torch.diagonal(covars, dim1=-2, dim2=-1)
-            sd = torch.sqrt(torch.clamp(variances, min=self.epsilon)).unsqueeze(-1)
-            denominator = sd @ sd.transpose(-1, -2)
-            corrs = covars / (denominator + self.epsilon)
-            corrs = torch.clamp(corrs, min=-1.0, max=1.0)
-            
-            return corrs
         
         elif "lowrank" in self.out_type:
             
@@ -329,6 +303,7 @@ class DynaProt(LightningModule):
 
             covars = L @ L.transpose(-1, -2)
             return covars
+
 
     def on_before_batch_transfer(self, batch, dataloader_idx):
         typ = next(self.parameters()).dtype
