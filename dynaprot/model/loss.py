@@ -1,6 +1,7 @@
 import torch
 import torch.nn.functional as F
 from dynaprot.evaluation import metrics
+from torch.distributions.multivariate_normal import MultivariateNormal
 
 
 class DynaProtLoss(torch.nn.Module):

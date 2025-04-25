@@ -59,7 +59,10 @@ class DynaProt(LightningModule):
                 act=nn.ReLU,
                 output_dim=6
             ) # Predict lower diagonal matrix L (cholesky decomposition) to ensure symmetric psd Σ = LL^T
-
+            
+            if self.cfg["model_params"].get("marginal_layernorm", False):
+                self.ln = nn.LayerNorm(self.d_model)
+                
         if "joint" in self.out_type:
             if  "cholesky" in self.out_type:
                 self.global_corr_predictor = self.get_corr_predictor(
@@ -147,7 +150,8 @@ class DynaProt(LightningModule):
         if self.use_sinusoidal:
             residue_features = self.pos_encoder(seq_emb)
         else:
-            residue_features = seq_emb + self.position_embedding[:, :seq_emb.shape[1], :]
+            # residue_features = seq_emb + self.position_embedding[:, :seq_emb.shape[1], :]
+            residue_features = seq_emb
 
 
         rots = frames[..., :3, :3]
@@ -157,6 +161,9 @@ class DynaProt(LightningModule):
             residue_features, attn =  ipa(single_repr=residue_features, rotations=rots,translations=trans, mask=mask.bool(), return_attn= (i == len(self.ipa_blocks) - 1))
             residue_features = self.dropout(residue_features)
             
+        if self.cfg["model_params"].get("marginal_layernorm", False):
+            residue_features = self.ln(residue_features)
+        
         preds = dict()
         if "marginal" in self.out_type:
             preds["marginal_covars"] = self.pred_marginals(residue_features)    # Shape: (batch_size, num_residues, 3, 3)
@@ -309,6 +316,7 @@ class DynaProt(LightningModule):
 
             covars = L @ L.transpose(-1, -2)
             return covars
+
 
 
     def on_before_batch_transfer(self, batch, dataloader_idx):
