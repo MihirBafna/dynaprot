@@ -44,16 +44,16 @@ def preprocess_atlas():
     # proteins = [prot for prot in os.listdir(inpath) if os.path.isdir(os.path.join(inpath, prot))]
     
     # inpath = "/data/cb/scratch/datasets/atlas_dynamics_labels"
-    prots = os.listdir(outpath)
-    success = []
-    for prot in tqdm(prots):
-        frame_path = os.path.join(outpath, prot, "frames")
-        if os.path.exists(frame_path) and len(os.listdir(frame_path)) >= 300:
-            success.append(prot)
-    success = np.array(success)
-    print(len(success))
-    proteins = np.setdiff1d(proteins, success) 
-    print(len(proteins))
+    # prots = os.listdir(outpath)
+    # success = []
+    # for prot in tqdm(prots):
+    #     frame_path = os.path.join(outpath, prot, "frames")
+    #     if os.path.exists(frame_path) and len(os.listdir(frame_path)) >= 300:
+    #         success.append(prot)
+    # success = np.array(success)
+    # print(len(success))
+    # proteins = np.setdiff1d(proteins, success) 
+    # print(len(proteins))
 
 
     total_chains = len(proteins)

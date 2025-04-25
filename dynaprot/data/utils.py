@@ -10,14 +10,12 @@ import string
 from openfold.np import residue_constants
 from Bio.PDB import PDBParser
 import numpy as np
-import modelcif
-import modelcif.model
-import modelcif.dumper
-import modelcif.reference
-import modelcif.protocol
-import modelcif.alignment
-import modelcif.qa_metric
-
+import mdtraj as md
+from torch.distributions.multivariate_normal import MultivariateNormal
+from Bio.PDB import PDBParser, DSSP
+from Bio.PDB.PDBIO import PDBIO
+from .utils_secondary import assign_secondary_structures
+import os
 
 FeatureDict = Mapping[str, np.ndarray]
 ModelOutput = Mapping[str, Any]  # Is a nested dict.
@@ -41,7 +39,208 @@ def dict_multimap(fn, dicts):
     return new_dict
 
 
+def sample_ensemble(mean_3n, cov_3n, num_samples=10):
+    device = cov_3n.device
+    dtype = cov_3n.dtype
+    N = cov_3n.shape[0] // 3
 
+    if mean_3n is None:
+        mean_3n = torch.zeros(3 * N, device=device, dtype=dtype)
+
+    mvn = MultivariateNormal(loc=mean_3n, covariance_matrix=cov_3n)
+    samples = mvn.rsample((num_samples,))
+    samples = samples.view(num_samples, N, 3)
+    return samples
+
+
+
+
+def write_pdb_with_ss_annotations(
+    coord_ensemble: torch.Tensor,
+    ref_pdb_path: str,
+    out_pdb_path: str,
+    ss_assignments: list  # list of strings like "H", "E", "-" of length N
+):
+    """
+    Save ensemble as PDB with only Cα atoms and SS annotations.
+    Args:
+        coord_ensemble: (num_samples, N, 3) in Å
+        ref_pdb_path: full atom reference PDB
+        out_pdb_path: where to write output PDB
+        ss_assignments: list of secondary structure assignments ("H", "E", "-") per residue
+    """
+    assert coord_ensemble.ndim == 3
+    num_models, N, _ = coord_ensemble.shape
+    assert len(ss_assignments) == N
+
+    ref = md.load(ref_pdb_path)
+    ca_indices = ref.topology.select("name CA")
+    assert len(ca_indices) == N, f"Cα count mismatch: {len(ca_indices)} vs {N}"
+
+    ref_calpha = ref.atom_slice(ca_indices)
+
+
+
+def save_ensemble_with_ss(
+    coord_ensemble: torch.Tensor,
+    ref_pdb_path: str,
+    out_pdb_path: str,
+    assign_ss_fn = assign_secondary_structures,  # Your `assign_secondary_structures` function
+):
+    """
+    Save an ensemble of structures using only Cα atoms and annotate secondary structure using a custom assignment function.
+
+    Args:
+        coord_ensemble (torch.Tensor): Tensor of shape (num_samples, N, 3), in Ångström.
+        ref_pdb_path (str): Path to a reference PDB file with correct topology.
+        out_pdb_path (str): Output path for the ensemble PDB.
+        assign_ss_fn (function): Function to assign secondary structure from coordinates.
+    """
+    coord_ensemble = coord_ensemble.cpu().numpy()
+    num_models, N, _ = coord_ensemble.shape
+
+    ref = md.load_pdb(ref_pdb_path)
+    ss_assignments =list( md.compute_dssp(ref)[0])
+    print(ss_assignments, len(ss_assignments))
+
+    # Only use Cα atoms
+    ca_indices = ref.topology.select("name CA")
+    ref_calpha = ref.atom_slice(ca_indices)
+    residues = list(ref_calpha.topology.residues)
+
+    if len(ca_indices) != coord_ensemble.shape[1]:
+        raise ValueError(f"Reference has {len(ca_indices)} Cα atoms, but ensemble has {coord_ensemble.shape[1]} residues")
+
+    lines = []
+
+    # Write HELIX/SHEET records manually for model 1
+    current_ss = None
+    start = None
+
+    for i, ss in enumerate(ss_assignments + ["END"]):  # Add sentinel
+        if ss != current_ss:
+            if current_ss in ["H", "E"]:
+                record_type = "HELIX" if current_ss == "H" else "SHEET"
+                end = i
+                res_start = residues[start].resSeq
+                res_end   = residues[end - 1].resSeq
+                chain_index = residues[start].chain.index
+                chain_id = string.ascii_uppercase[chain_index] 
+                lines.append(f"{record_type:<6}    1 {chain_id} {res_start:>4}    {chain_id} {res_end:>4}")
+            current_ss = ss
+            start = i
+
+    # Write each model
+    atom_line_format = (
+        "ATOM  {atom_idx:5d}  CA  {resname:>3} {chain_id}{resid:4d}    "
+        "{x:8.3f}{y:8.3f}{z:8.3f}  1.00  0.00           C  "
+    )
+
+    resnames  = [res.name for res in residues]
+    resids    = [res.resSeq for res in residues]
+    chain_ids = [res.chain.index  for res in residues]
+    
+    for model_idx in range(num_models):
+        lines.append(f"MODEL     {model_idx + 1}")
+        for i in range(N):
+            coord = coord_ensemble[model_idx, i]
+            lines.append(atom_line_format.format(
+                atom_idx=i + 1,
+                resname=resnames[i],
+                chain_id=chain_ids[i],
+                resid=resids[i],
+                x=coord[0].item(),
+                y=coord[1].item(),
+                z=coord[2].item()
+            ))
+        lines.append("ENDMDL")
+
+    lines.append("END")
+
+    with open(out_pdb_path, "w") as f:
+        f.write("\n".join(lines) + "\n")
+
+
+
+def save_ensemble(
+    coord_ensemble: torch.Tensor,
+    ref_pdb_path: str,
+    out_pdb_path: str,
+    transfer_secondary_struc: bool = True,
+):
+    """
+    Save an ensemble of structures using only Cα atoms.
+
+    Args:
+        coord_ensemble (torch.Tensor): Tensor of shape (num_samples, N, 3), in Ångström.
+        ref_pdb_path (str): Path to a reference PDB file with correct topology.
+        out_pdb_path (str): Output path for the ensemble PDB.
+        transfer_secondary_struc (bool): Whether to assign secondary structure using DSSP from ref PDB.
+    """
+    coord_ensemble = coord_ensemble.cpu().numpy()
+    ref = md.load_pdb(ref_pdb_path)
+
+    ca_indices = ref.topology.select("name CA")
+    ref_calpha = ref.atom_slice(ca_indices)
+
+    if len(ca_indices) != coord_ensemble.shape[1]:
+        raise ValueError(f"Reference has {len(ca_indices)} Cα atoms, but ensemble has {coord_ensemble.shape[1]} residues")
+
+    # Save coordinates (first model only) with SS annotation
+    coords = coord_ensemble[0]
+
+    ss_annotation = assign_secondary_structures(torch.from_numpy(ref.xyz*10.0), return_encodings=False)  
+    print(ss_annotation)
+    # Build HELIX and SHEET lines
+    header_lines = []
+    if transfer_secondary_struc and ss_annotation:
+        def find_regions(label):
+            regions = []
+            start = None
+            for i, c in enumerate(ss_annotation):
+                if c == label and start is None:
+                    start = i
+                elif c != label and start is not None:
+                    if i - start >= 3:
+                        regions.append((start, i - 1))
+                    start = None
+            if start is not None and len(ss_annotation) - start >= 3:
+                regions.append((start, len(ss_annotation) - 1))
+            return regions
+
+        helix_regions = find_regions('H')
+        sheet_regions = find_regions('E')
+
+        for i, (start, end) in enumerate(helix_regions, 1):
+            res_start = ref_calpha.topology.residue(start)
+            res_end = ref_calpha.topology.residue(end)
+            header_lines.append(
+                f"HELIX  {i:>3}  H{i:>3} {res_start.name:>3} A{res_start.resSeq:>4}  {res_end.name:>3} A{res_end.resSeq:>4}  1 {end-start+1:>30}"
+            )
+
+        for i, (start, end) in enumerate(sheet_regions, 1):
+            res_start = ref_calpha.topology.residue(start)
+            res_end = ref_calpha.topology.residue(end)
+            header_lines.append(
+                f"SHEET  {i:>3}  S{i:>3} 1 {res_start.name:>3} A{res_start.resSeq:>4}  {res_end.name:>3} A{res_end.resSeq:>4}  0"
+            )
+
+    # Save annotated PDB manually
+    os.makedirs(os.path.dirname(out_pdb_path), exist_ok=True)
+    with open(out_pdb_path, "w") as f:
+        for line in header_lines:
+            f.write(line + "\n")
+
+        for i, atom in enumerate(ref_calpha.topology.atoms):
+            x, y, z = coords[i]
+            f.write(
+                f"ATOM  {i+1:5d}  CA  {atom.residue.name:>3} A{atom.residue.resSeq:>4}    "
+                f"{x:8.3f}{y:8.3f}{z:8.3f}  1.00 20.00           C\n"
+            )
+        f.write("END\n")
+        
+
+    
 def from_pdb_string(pdb_str: str, chain_id: Optional[str] = None) -> dict:
     """Takes a single chain PDB string and constructs a dictionary of protein chain features.
         Modifies the original method from openfold.np.protein
