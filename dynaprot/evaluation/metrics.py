@@ -59,7 +59,7 @@ def kl_divergence_mvn(mu1, sigma1, mu2, sigma2):
 
     # KL divergence formula KL(P2 || P1)
     kl_div = 0.5 * (
-        sigma1_logdet - sigma2_logdet  # log(det(Sigma2) / det(Sigma1))
+        sigma1_logdet - sigma2_logdet  # log(det(Sigma1) / det(Sigma2))
         - d                           # dimensionality term
         + batchtrace_s1inv_s2         # trace term
         + squared_mahalanobis_term    # Mahalanobis distance
@@ -70,6 +70,35 @@ def kl_divergence_mvn(mu1, sigma1, mu2, sigma2):
 
 def symmetric_kl(mu1, sigma1, mu2, sigma2):
     return 0.5 * (kl_divergence_mvn(mu1, sigma1, mu2, sigma2) + kl_divergence_mvn(mu2, sigma2, mu1, sigma1))
+
+
+def w2_distance(mu1: torch.Tensor, cov1: torch.Tensor, mu2: torch.Tensor, cov2: torch.Tensor) -> torch.Tensor:
+    """
+    Compute squared Wasserstein-2 distance between two Gaussians (mu, cov).
+    
+    Args:
+        mu1: Mean of first Gaussian, shape (d,)
+        cov1: Covariance of first Gaussian, shape (d, d)
+        mu2: Mean of second Gaussian, shape (d,)
+        cov2: Covariance of second Gaussian, shape (d, d)
+
+    Returns:
+        Scalar tensor: W₂ distance (not squared).
+    """
+    # Mean term
+    mean_diff = torch.linalg.norm(mu1 - mu2)
+
+    # Covariance term
+    sqrt_cov2 = matrix_sqrt_eigen(cov2)  # You already defined this
+
+    # Middle term: sqrt( sqrt_cov2 @ cov1 @ sqrt_cov2 )
+    middle = sqrt_cov2 @ cov1 @ sqrt_cov2
+    sqrt_middle = matrix_sqrt_eigen(middle)
+
+    cov_term = torch.trace(cov1 + cov2 - 2 * sqrt_middle)
+
+    w2 = (mean_diff**2 + cov_term).sqrt()
+    return w2
 
 
 def condition_num_penalty(covars, max_condition=100.0, scale_factor=1e-3):
@@ -190,6 +219,13 @@ def affine_invariant_distance(A: torch.Tensor, B: torch.Tensor) -> torch.Tensor:
     return geodesic_dist.mean()
 
 
+def matrix_sqrt_eigen(matrix):
+    eigenvalues, eigenvectors = torch.linalg.eigh(matrix)
+    sqrt_eigenvalues = torch.sqrt(eigenvalues)
+    sqrt_matrix = eigenvectors @ torch.diag_embed(sqrt_eigenvalues) @ eigenvectors.transpose(-1, -2)
+    return sqrt_matrix
+    
+
 def bures_distance(pred_cov, gt_cov):
     """
     Compute the squared 2-Wasserstein distance between two covariance matrices ignoring means (bures distance).
@@ -202,12 +238,7 @@ def bures_distance(pred_cov, gt_cov):
         torch.Tensor: Wasserstein distance between the covariance matrices.
     """
     
-    def matrix_sqrt_eigen(matrix):
-        eigenvalues, eigenvectors = torch.linalg.eigh(matrix)
-        sqrt_eigenvalues = torch.sqrt(eigenvalues)
-        sqrt_matrix = eigenvectors @ torch.diag_embed(sqrt_eigenvalues) @ eigenvectors.transpose(-1, -2)
-        return sqrt_matrix
-    
+
     pred_sqrt = matrix_sqrt_eigen(pred_cov)
     
     cross_term = pred_sqrt @ gt_cov @ pred_sqrt.transpose(-1, -2)
@@ -320,3 +351,158 @@ def compute_rmsf_from_covariances(cov_matrices):
     traces = cov_matrices.diagonal(dim1=1, dim2=2).sum(dim=1)
     rmsf = torch.sqrt(traces)
     return rmsf
+
+
+def max_cosine_similarity_each_pc(cov_pred, cov_true, k_pred=4, k_true=4):
+    eval_pred, evec_pred = torch.linalg.eigh(cov_pred)  # shape: (3N, 3N)
+    eval_true, evec_true = torch.linalg.eigh(cov_true)
+
+    top_pred = evec_pred[:, -k_pred:] 
+    top_true = evec_true[:, -k_true:]  
+
+    top_pred = torch.nn.functional.normalize(top_pred, dim=0)
+    top_true = torch.nn.functional.normalize(top_true, dim=0)
+
+    cosine_matrix = torch.abs(top_pred.T @ top_true) 
+
+    max_similarities = torch.max(cosine_matrix, dim=1).values 
+
+    return max_similarities
+
+
+
+# Ensemble specific metrics
+
+def compute_average_pairwise_rmsd(ensemble_coords: torch.Tensor, subsample: int = 250, seed: int = 137) -> float:
+    """
+    Compute average C-alpha RMSD across subsampled frames, matching AlphaFlow style.
+
+    Args:
+        ensemble_coords (torch.Tensor): (T, N, 3)
+        subsample (int): Number of frames to subsample
+        seed (int): Random seed
+
+    Returns:
+        float: Average pairwise RMSD
+    """
+    T, N, _ = ensemble_coords.shape
+
+    flat_coords = ensemble_coords.reshape(T, -1)  # (T, 3N)
+
+    np.random.seed(seed)
+    idx1 = np.random.choice(T, subsample, replace=True)
+    idx2 = np.random.choice(T, subsample, replace=True)
+
+    coords1 = flat_coords[idx1]
+    coords2 = flat_coords[idx2]
+
+    dists = torch.cdist(coords1, coords2, p=2)  # (subsample, subsample)
+
+    i, j = torch.triu_indices(subsample, subsample, offset=1)
+    pairwise_rmsds = dists[i, j]
+
+    avg_rmsd = (pairwise_rmsds.mean() / np.sqrt(N)) # *10 to get Angstroms
+
+    return avg_rmsd.item()
+
+
+
+
+def compute_validity(calpha_coords: torch.Tensor, clash_threshold: float = 3.0) -> float:
+    """
+    Compute the validity of an ensemble based on Cα clashes.
+    
+    Args:
+        calpha_coords (torch.Tensor): (T, N, 3) tensor of sampled coordinates
+        clash_threshold (float): Distance threshold (in Å) to consider a clash (default: 3.0 Å)
+
+    Returns:
+        float: Validity score (fraction of samples without any clashes)
+    """
+    T, N, _ = calpha_coords.shape
+
+    diffs = calpha_coords.unsqueeze(2) - calpha_coords.unsqueeze(1)  # (T, N, N, 3)
+    dists = torch.linalg.norm(diffs, dim=-1)  # (T, N, N)
+
+    eye = torch.eye(N, device=calpha_coords.device).unsqueeze(0)
+    dists = dists + eye * 1e6
+
+    has_clash = (dists < clash_threshold).any(dim=(1, 2))  # (T,)
+
+    num_valid = (~has_clash).sum()          # 1 - num steric clashes
+    validity = num_valid.item() / T
+
+    return validity
+
+
+# import torch
+# import numpy as np
+# from sklearn.decomposition import PCA
+# from scipy.optimize import linear_sum_assignment
+
+# def compute_pca_metrics(gt_coords: torch.Tensor, pred_coords: torch.Tensor, k_pc_sim: int = 3, k_pca_proj: int = 2, n_samples: int = 250, seed: int = 137):
+#     """
+#     Compute PC similarity and PCA-based W2 distance between ground truth and predicted ensembles,
+#     matching AlphaFlow evaluation style.
+    
+#     Args:
+#         gt_coords (torch.Tensor): (T1, N, 3)
+#         pred_coords (torch.Tensor): (T2, N, 3)
+#         k_pc_sim (int): Number of PCs for cosine similarity
+#         k_pca_proj (int): Number of PCs for PCA projection
+#         n_samples (int): Number of frames to subsample from GT
+#         seed (int): Random seed for subsampling
+        
+#     Returns:
+#         Tuple: (pc_similarity_count, pca_wasserstein_distance)
+#     """
+#     T1, N, _ = gt_coords.shape
+#     T2, _, _ = pred_coords.shape
+
+#     device = gt_coords.device
+
+#     # Flatten (T, N, 3) -> (T, 3N)
+#     gt_flat = gt_coords.reshape(T1, -1).cpu().numpy()
+#     pred_flat = pred_coords.reshape(T2, -1).cpu().numpy()
+
+#     # Center
+#     gt_flat -= gt_flat.mean(axis=0, keepdims=True)
+#     pred_flat -= pred_flat.mean(axis=0, keepdims=True)
+
+#     # Subsample GT frames
+#     np.random.seed(seed)
+#     idx = np.random.choice(T1, n_samples, replace=True)
+#     gt_sampled = gt_flat[idx]
+
+#     # PCA on GT sampled
+#     pca = PCA(n_components=min(gt_sampled.shape))
+#     pca.fit(gt_sampled)
+
+#     pc_basis = pca.components_  # (k, 3N)
+
+#     # Cosine similarity of top PCs
+#     u_gt = pc_basis[:k_pc_sim]
+#     pca_pred = PCA(n_components=min(pred_flat.shape))
+#     pca_pred.fit(pred_flat)
+#     u_pred = pca_pred.components_[:k_pc_sim]
+
+#     sims = []
+#     for i in range(k_pc_sim):
+#         sim = np.abs(np.dot(u_gt[i], u_pred[i]) / (np.linalg.norm(u_gt[i]) * np.linalg.norm(u_pred[i])))
+#         sims.append(sim)
+
+#     sims = np.array(sims)
+
+#     # Project ensembles onto GT PCA basis
+#     proj_gt = gt_flat @ pc_basis[:k_pca_proj].T
+#     proj_pred = pred_flat @ pc_basis[:k_pca_proj].T
+
+#     # Compute Wasserstein distance manually using Hungarian matching
+#     distmat = np.linalg.norm(proj_gt[:, None, :] - proj_pred[None, :, :], axis=-1)  # (T1, T2)
+#     row_ind, col_ind = linear_sum_assignment(distmat)
+#     wasserstein = distmat[row_ind, col_ind].mean()
+
+#     # Rescale distances by sqrt(num_atoms)
+#     wasserstein /= np.sqrt(N)
+
+#     return (sims > 0.5).sum().item(), wasserstein

@@ -6,14 +6,17 @@ model_params:
   d_model: 128
   readout_hidden_dim: 128
   readout_layers: 4
-  readout_rank: 16
   readout_dropout: 0.1
   use_layernorm: False
-  pair_blocks: 2
+  pair_blocks: 3
+  pair_divisor: 1
+  pair_heads: 4
+  pair_dim_head: 16
+  use_sinusoidal_pos_emb: False
 
 train_params:
-  precision: 32
-  batch_size: 3
+  precision: 64
+  batch_size: 6
   epochs: 10000
   learning_rate: 0.0001
   warmup_steps: 2000
