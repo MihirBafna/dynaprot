@@ -1,6 +1,8 @@
 import torch
 from scipy.stats import pearsonr, spearmanr
-
+import numpy as np
+from sklearn.decomposition import PCA
+from scipy.optimize import linear_sum_assignment
 
 # def kl_divergence_mvn(mu1, sigma1, mu2, sigma2):
 #     """ KL Divergence between two multivariate Gaussian distributions (batch friendly)
@@ -435,74 +437,69 @@ def compute_validity(calpha_coords: torch.Tensor, clash_threshold: float = 3.0) 
     return validity
 
 
-# import torch
-# import numpy as np
-# from sklearn.decomposition import PCA
-# from scipy.optimize import linear_sum_assignment
-
-# def compute_pca_metrics(gt_coords: torch.Tensor, pred_coords: torch.Tensor, k_pc_sim: int = 3, k_pca_proj: int = 2, n_samples: int = 250, seed: int = 137):
-#     """
-#     Compute PC similarity and PCA-based W2 distance between ground truth and predicted ensembles,
-#     matching AlphaFlow evaluation style.
+def compute_pca_metrics(gt_coords: torch.Tensor, pred_coords: torch.Tensor, k_pc_sim: int = 3, k_pca_proj: int = 2, n_samples: int = 250, seed: int = 137):
+    """
+    Compute PC similarity and PCA-based W2 distance between ground truth and predicted ensembles,
+    matching AlphaFlow evaluation style.
     
-#     Args:
-#         gt_coords (torch.Tensor): (T1, N, 3)
-#         pred_coords (torch.Tensor): (T2, N, 3)
-#         k_pc_sim (int): Number of PCs for cosine similarity
-#         k_pca_proj (int): Number of PCs for PCA projection
-#         n_samples (int): Number of frames to subsample from GT
-#         seed (int): Random seed for subsampling
+    Args:
+        gt_coords (torch.Tensor): (T1, N, 3)
+        pred_coords (torch.Tensor): (T2, N, 3)
+        k_pc_sim (int): Number of PCs for cosine similarity
+        k_pca_proj (int): Number of PCs for PCA projection
+        n_samples (int): Number of frames to subsample from GT
+        seed (int): Random seed for subsampling
         
-#     Returns:
-#         Tuple: (pc_similarity_count, pca_wasserstein_distance)
-#     """
-#     T1, N, _ = gt_coords.shape
-#     T2, _, _ = pred_coords.shape
+    Returns:
+        Tuple: (pc_similarity_count, pca_wasserstein_distance)
+    """
+    T1, N, _ = gt_coords.shape
+    T2, _, _ = pred_coords.shape
 
-#     device = gt_coords.device
+    device = gt_coords.device
 
-#     # Flatten (T, N, 3) -> (T, 3N)
-#     gt_flat = gt_coords.reshape(T1, -1).cpu().numpy()
-#     pred_flat = pred_coords.reshape(T2, -1).cpu().numpy()
+    # Flatten (T, N, 3) -> (T, 3N)
+    gt_flat = gt_coords.reshape(T1, -1).cpu().numpy()
+    pred_flat = pred_coords.reshape(T2, -1).cpu().numpy()
 
-#     # Center
-#     gt_flat -= gt_flat.mean(axis=0, keepdims=True)
-#     pred_flat -= pred_flat.mean(axis=0, keepdims=True)
+    # Center
+    gt_flat -= gt_flat.mean(axis=0, keepdims=True)
+    pred_flat -= pred_flat.mean(axis=0, keepdims=True)
 
-#     # Subsample GT frames
-#     np.random.seed(seed)
-#     idx = np.random.choice(T1, n_samples, replace=True)
-#     gt_sampled = gt_flat[idx]
+    # Subsample GT frames
+    np.random.seed(seed)
+    idx = np.random.choice(T1, n_samples, replace=True)
+    gt_sampled = gt_flat[idx]
 
-#     # PCA on GT sampled
-#     pca = PCA(n_components=min(gt_sampled.shape))
-#     pca.fit(gt_sampled)
+    # PCA on GT sampled
+    pca = PCA(n_components=min(gt_sampled.shape))
+    pca.fit(gt_sampled)
 
-#     pc_basis = pca.components_  # (k, 3N)
+    pc_basis = pca.components_  # (k, 3N)
 
-#     # Cosine similarity of top PCs
-#     u_gt = pc_basis[:k_pc_sim]
-#     pca_pred = PCA(n_components=min(pred_flat.shape))
-#     pca_pred.fit(pred_flat)
-#     u_pred = pca_pred.components_[:k_pc_sim]
+    # Cosine similarity of top PCs
+    u_gt = pc_basis[:k_pc_sim]
+    pca_pred = PCA(n_components=min(pred_flat.shape))
+    pca_pred.fit(pred_flat)
+    u_pred = pca_pred.components_[:k_pc_sim]
 
-#     sims = []
-#     for i in range(k_pc_sim):
-#         sim = np.abs(np.dot(u_gt[i], u_pred[i]) / (np.linalg.norm(u_gt[i]) * np.linalg.norm(u_pred[i])))
-#         sims.append(sim)
+    sims = []
+    for i in range(k_pc_sim):
+        sim = np.abs(np.dot(u_gt[i], u_pred[i]) / (np.linalg.norm(u_gt[i]) * np.linalg.norm(u_pred[i])))
+        sims.append(sim)
 
-#     sims = np.array(sims)
+    sims = np.array(sims)
 
-#     # Project ensembles onto GT PCA basis
-#     proj_gt = gt_flat @ pc_basis[:k_pca_proj].T
-#     proj_pred = pred_flat @ pc_basis[:k_pca_proj].T
+    # Project ensembles onto GT PCA basis
+    proj_gt = gt_flat @ pc_basis[:k_pca_proj].T
+    proj_pred = pred_flat @ pc_basis[:k_pca_proj].T
 
-#     # Compute Wasserstein distance manually using Hungarian matching
-#     distmat = np.linalg.norm(proj_gt[:, None, :] - proj_pred[None, :, :], axis=-1)  # (T1, T2)
-#     row_ind, col_ind = linear_sum_assignment(distmat)
-#     wasserstein = distmat[row_ind, col_ind].mean()
+    # Compute Wasserstein distance manually using Hungarian matching
+    distmat = np.linalg.norm(proj_gt[:, None, :] - proj_pred[None, :, :], axis=-1)  # (T1, T2)
+    row_ind, col_ind = linear_sum_assignment(distmat)
+    wasserstein = distmat[row_ind, col_ind].mean()
 
-#     # Rescale distances by sqrt(num_atoms)
-#     wasserstein /= np.sqrt(N)
+    # Rescale distances by sqrt(num_atoms)
+    wasserstein /= np.sqrt(N)
 
-#     return (sims > 0.5).sum().item(), wasserstein
+    return (sims > 0.5).sum().item(), wasserstein
