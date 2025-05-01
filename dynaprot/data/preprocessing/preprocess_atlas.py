@@ -8,6 +8,7 @@ from rich.console import Console
 from dynaprot.data.datasets import DynaProtDataset
 from openfold.data import data_transforms, feature_pipeline
 from dynaprot.data.utils import from_pdb_string, map_one_protein_local_frame,map_one_protein_global_frame
+from dynaprot.evaluation.metrics import matrix_sqrt_eigen
 import torch
 import argparse
 from functools import partial
@@ -22,7 +23,7 @@ def parse_args():
     parser = argparse.ArgumentParser(description='Process MD trajectories and compute Gaussian parameters per residue.')
     parser.add_argument('--inpath', type=str, required=False, help='Input directory containing folders (protein names) that have trajectories')
     parser.add_argument('--outpath', type=str, required=False, help='Output directory to save the results.')
-    parser.add_argument('--calpha', action='store_true', help='Use Cα atoms instead of centroids.')
+    # parser.add_argument('--calpha', action='store_true', help='Use Cα atoms instead of centroids.')
 
     
     return parser.parse_args()
@@ -113,7 +114,7 @@ def process_one_trajectory_atlas(prot):
     #     torch.save(selected_feats,pt_path)
     #     return prot
     
-    # return save_separate_frames(prot, traj, 100)
+    return save_separate_frames(prot, traj, 1000)
     
     # generate feats and process them into dicts
     feats = from_pdb_string(open(pdb_path, 'r').read())
@@ -124,9 +125,14 @@ def process_one_trajectory_atlas(prot):
     selected_feats["frames"] = feats["backbone_rigid_tensor"] 
 
     # compute all dynamics here                 
-    selected_feats["dynamics_means"], selected_feats["dynamics_covars_global"],selected_feats["dynamics_fullcovar_global"] = compute_gaussians(traj)
+    selected_feats["dynamics_means"], selected_feats["dynamics_covars_global"],selected_feats["dynamics_fullcovar_global"] = compute_gaussians(traj,ref)
 
     selected_feats["dynamics_covars_local"],selected_feats["dynamics_fullcovar_local"] = map_one_protein_local_frame( selected_feats["frames"].double(),  selected_feats["dynamics_covars_global"].double(),selected_feats["dynamics_fullcovar_global"].double())
+    selected_feats["dynamics_covars_local_sqrt"],selected_feats["dynamics_fullcovar_local_sqrt"] =  matrix_sqrt_eigen(selected_feats["dynamics_covars_local"]), matrix_sqrt_eigen(selected_feats["dynamics_fullcovar_local"])
+    
+    assert torch.allclose(selected_feats["dynamics_covars_local_sqrt"] @ selected_feats["dynamics_covars_local_sqrt"],selected_feats["dynamics_covars_local"] )
+    assert torch.allclose(selected_feats["dynamics_fullcovar_local_sqrt"] @ selected_feats["dynamics_fullcovar_local_sqrt"],selected_feats["dynamics_fullcovar_local"] )
+
     selected_feats["dynamics_rmsf"] = compute_rmsf_from_covariances(selected_feats["dynamics_covars_local"])
 
     # selected_feats["dynamics_correlations"] = compute_residue_correlations(selected_feats["dynamics_fullcovar_local"])
@@ -202,9 +208,14 @@ def extract_3x3_block_diagonal(matrix):
     return blocks[torch.arange(N), :, torch.arange(N), :]
 
 
-def compute_gaussians(traj, verify=True):
-    ca_indices = traj.topology.select("name CA")
-    ca_positions =  torch.tensor(traj.xyz[:, ca_indices, :], dtype=torch.float64) * 10.0  # (T, N, 3)
+def compute_gaussians(traj,ref, verify=True):
+    # ca_indices = traj.topology.select("name CA")
+    ca_indices =  [a.index for a in traj.top.atoms if a.name == 'CA']
+    traj = traj.atom_slice(ca_indices, False)
+    ref = ref.atom_slice(ca_indices, False)
+    traj.superpose(ref)
+    ca_positions =  torch.tensor(traj.xyz, dtype=torch.float64) * 10.0  # (T, N, 3)
+    # ca_positions =  torch.tensor(traj.xyz[:, ca_indices, :], dtype=torch.float64) * 10.0  # (T, N, 3)
 
     T, N, _ = ca_positions.shape
 

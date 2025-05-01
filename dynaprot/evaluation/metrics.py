@@ -145,6 +145,9 @@ def eigenvalue_penalty(covars, lambda_min=1.0, lambda_max=20, scale_high=1e-3, s
 def frobenius_norm(A):
     return torch.sqrt(torch.einsum("nij,nji",A,A)).mean()
 
+def frobenius_norm_squared(A):
+    return torch.sum(torch.square(A), dim=(-2, -1)).mean()
+
 
 def log_frobenius_norm(sigma1, sigma2):
     """

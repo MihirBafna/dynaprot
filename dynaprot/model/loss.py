@@ -33,7 +33,34 @@ class DynaProtLoss(torch.nn.Module):
 
         true_means = batch["dynamics_means"][mask]
 
-        if "marginal" in self.cfg["train_params"]["out_type"]:
+        if "marginal_sqrt" in self.cfg["train_params"]["out_type"]:
+            print("predicting sqrtm(marginal)")
+            true_covars_sqrt = batch["dynamics_covars_local"][mask]
+            predicted_covars_sqrt =  preds["marginal_covars"][mask]
+            
+            true_covars = batch["dynamics_covars_local"][mask].detach()
+            predicted_covars = predicted_covars_sqrt.detach() @ predicted_covars_sqrt.detach()
+
+            true_rmsfs = metrics.compute_rmsf_from_covariances(true_covars).cpu()
+            pred_rmsfs = metrics.compute_rmsf_from_covariances(predicted_covars).cpu()
+            
+            loss_dict["resi_gaussians"] = dict(
+                mse_covs=F.mse_loss(predicted_covars, true_covars) if loss_weights["resi_gaussians"]["mse_covs"] is not None else None,
+                kldiv=metrics.kl_divergence_mvn(true_means, predicted_covars, true_means, true_covars) if loss_weights["resi_gaussians"]["kldiv"] is not None else None,
+                frob_norm=metrics.frobenius_norm_squared(predicted_covars_sqrt - true_covars_sqrt) if loss_weights["resi_gaussians"]["frob_norm"] is not None else None,
+                
+                log_frob_norm = metrics.log_frobenius_norm(predicted_covars, true_covars) if loss_weights["resi_gaussians"]["log_frob_norm"] is not None else None,
+                affine_invariant_dist = metrics.affine_invariant_distance(predicted_covars, true_covars) if loss_weights["resi_gaussians"]["affine_invariant_dist"] is not None else None,
+                bures_dist = metrics.bures_distance(predicted_covars, true_covars) if loss_weights["resi_gaussians"]["bures_dist"] is not None else None,
+            )
+            
+            loss_dict["resi_rmsf"] = dict(
+                corr_sp = metrics.rmsf_correlation(true_rmsfs, pred_rmsfs, type="spearman") if loss_weights["resi_rmsf"]["corr_sp"] is not None else None,
+                corr_pcc = metrics.rmsf_correlation(true_rmsfs, pred_rmsfs, type="pearson") if loss_weights["resi_rmsf"]["corr_pcc"] is not None else None,
+            )
+            
+        elif "marginal" in self.cfg["train_params"]["out_type"]:
+            print("predicting regular marginals")
             true_covars = batch["dynamics_covars_local"][mask]
             predicted_covars =  preds["marginal_covars"][mask]
             true_rmsfs = metrics.compute_rmsf_from_covariances(true_covars.detach()).cpu()
