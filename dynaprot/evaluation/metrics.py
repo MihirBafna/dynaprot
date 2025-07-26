@@ -229,9 +229,9 @@ def matrix_sqrt_eigen(matrix):
     sqrt_eigenvalues = torch.sqrt(eigenvalues)
     sqrt_matrix = eigenvectors @ torch.diag_embed(sqrt_eigenvalues) @ eigenvectors.transpose(-1, -2)
     return sqrt_matrix
-    
 
-def bures_distance(pred_cov, gt_cov):
+
+def bures_distance(pred_cov, gt_cov, mean=True):
     """
     Compute the squared 2-Wasserstein distance between two covariance matrices ignoring means (bures distance).
 
@@ -254,7 +254,61 @@ def bures_distance(pred_cov, gt_cov):
     trace_cross = torch.diagonal(cross_sqrt, dim1=-2, dim2=-1).sum(-1)  # trace((Σ_P^{1/2} Σ_Q Σ_P^{1/2})^{1/2})
     
     wasserstein_dist = trace_pred + trace_gt - 2 * trace_cross
-    return wasserstein_dist.mean()
+    
+    if mean:
+        return wasserstein_dist.mean()
+    else:
+        return wasserstein_dist
+
+    
+
+def rmwd_bures_distance_torch(ref_covar: torch.Tensor, pred_covar: torch.Tensor, eps=1e-6):
+    """
+    Compute Bures/Wasserstein-like root mean square distance between
+    two batches of 3x3 positive semi-definite covariance matrices.
+
+    Args:
+        ref_covar: (N, 3, 3) reference covariance matrices (e.g. from MD)
+        pred_covar: (N, 3, 3) predicted covariance matrices (e.g. from model)
+        eps: numerical stability for eigenvalue clamping
+
+    Returns:
+        Tensor of shape (N,) with per-residue RMWD distances.
+    """
+    def matrix_sqrt(x):
+        eigvals, eigvecs = torch.linalg.eigh(x)
+        eigvals = torch.clamp(eigvals, min=eps)
+        sqrt_eigvals = torch.sqrt(eigvals)
+        return eigvecs @ torch.diag_embed(sqrt_eigvals) @ eigvecs.transpose(-1, -2)
+
+    ref_sqrt = matrix_sqrt(ref_covar)                          # (N, 3, 3)
+    inner = ref_sqrt @ pred_covar @ ref_sqrt                   # (N, 3, 3)
+    sqrt_inner = matrix_sqrt(inner)                            # (N, 3, 3)
+
+    trace_term = torch.diagonal(ref_covar + pred_covar - 2 * sqrt_inner, dim1=-2, dim2=-1).sum(-1)
+    rmwd = torch.sqrt(trace_term)        # (N,)
+    return rmwd
+
+    
+    
+
+def bures_distance_numpy(pred_cov, gt_cov, mean=True):
+    pred_sqrt = matrix_sqrt_eigen(pred_cov)
+    
+    cross_term = pred_sqrt @ gt_cov @ pred_sqrt.transpose(-1, -2)
+    cross_sqrt = matrix_sqrt_eigen(cross_term)
+    
+    trace_pred = torch.diagonal(pred_cov, dim1=-2, dim2=-1).sum(-1)  # trace(Σ_P)
+    trace_gt = torch.diagonal(gt_cov, dim1=-2, dim2=-1).sum(-1)      # trace(Σ_Q)
+    trace_cross = torch.diagonal(cross_sqrt, dim1=-2, dim2=-1).sum(-1)  # trace((Σ_P^{1/2} Σ_Q Σ_P^{1/2})^{1/2})
+    
+    wasserstein_dist = trace_pred + trace_gt - 2 * trace_cross
+    
+    if mean:
+        return wasserstein_dist.mean()
+    else:
+        return wasserstein_dist
+
 
 
 def bures_distance_ragged(pred_cov_list, gt_cov_list):

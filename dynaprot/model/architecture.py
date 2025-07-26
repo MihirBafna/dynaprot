@@ -8,7 +8,7 @@ from dynaprot.model.operators.lr_ipa import InvariantPointAttention as LRIPA
 from dynaprot.model.operators.lr_ipa import FeedForward as FF
 from dynaprot.model.operators.lowrank import LowRankDiagonalReadout
 from dynaprot.model.operators.lr_pairattention import PairwiseAttentionBlock
-from openfold.utils.rigid_utils import  Rigid
+# from openfold.utils.rigid_utils import  Rigid
 from dynaprot.model.loss import DynaProtLoss
 from torch.nn.utils import clip_grad_norm_
 from torch.optim.lr_scheduler import SequentialLR, LinearLR, CosineAnnealingLR
@@ -45,9 +45,10 @@ class DynaProt(LightningModule):
         self.out_type = self.cfg["train_params"]["out_type"]
         # IPA layers
         # self.ipa_blocks = nn.ModuleList([OpenFoldIPA(c_s=self.d_model,c_z=self.d_model,c_hidden=16,no_heads=4,no_qk_points=4,no_v_points=8) for _ in range(self.num_ipa_blocks)])
-        # self.ipa_blocks = nn.ModuleList([LRIPABlock(dim=self.d_model, require_pairwise_repr=False) for _ in range(self.num_ipa_blocks)])
-        
-        self.ipa_blocks = nn.ModuleList([LRIPA(dim=self.d_model,require_pairwise_repr=False) for _ in range(self.num_ipa_blocks)])
+        if cfg["model_params"].get("use_blocks", False):
+            self.ipa_blocks = nn.ModuleList([LRIPABlock(dim=self.d_model, require_pairwise_repr=False, pre_norm=cfg["model_params"].get("prelayernorm",False),post_norm = cfg["model_params"].get("postlayernorm", False)) for _ in range(self.num_ipa_blocks)])
+        else:
+            self.ipa_blocks = nn.ModuleList([LRIPA(dim=self.d_model,require_pairwise_repr=False) for _ in range(self.num_ipa_blocks)])
 
         self.dropout = nn.Dropout(0.2)
 

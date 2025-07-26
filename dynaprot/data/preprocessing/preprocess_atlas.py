@@ -114,7 +114,7 @@ def process_one_trajectory_atlas(prot):
     #     torch.save(selected_feats,pt_path)
     #     return prot
     
-    return save_separate_frames(prot, traj, 1000)
+    # return save_separate_frames(prot, traj, 1000)
     
     # generate feats and process them into dicts
     feats = from_pdb_string(open(pdb_path, 'r').read())

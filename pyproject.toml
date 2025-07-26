@@ -1,0 +1,22 @@
+[project]
+name = "dynaprot"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "biopandas>=0.5.1",
+    "biopython>=1.85",
+    "dm-tree>=0.1.8",
+    "einops>=0.8.1",
+    "mdtraj>=1.11.0",
+    "ml-collections>=1.1.0",
+    "modelcif>=1.4",
+    "neptune>=1.14.0",
+    "numpy==1.26.4",
+    "pytorch-lightning==2.4.0",
+    "pyyaml>=6.0.2",
+    "scikit-learn>=1.7.1",
+    "scipy==1.14.1",
+    "torch>=2.7.1",
+]
