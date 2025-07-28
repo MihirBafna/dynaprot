@@ -6,6 +6,7 @@ import torch.nn.functional as F
 from dynaprot.model.operators.lr_ipa import IPABlock as LRIPABlock
 from dynaprot.model.operators.lr_ipa import InvariantPointAttention as LRIPA
 from dynaprot.model.operators.lr_ipa import FeedForward as FF
+from dynaprot.model.operators.lr_ipa import GeometryAwareMLPBlock as AblationMLP
 from dynaprot.model.operators.lowrank import LowRankDiagonalReadout
 from dynaprot.model.operators.lr_pairattention import PairwiseAttentionBlock
 # from openfold.utils.rigid_utils import  Rigid
@@ -50,6 +51,13 @@ class DynaProt(LightningModule):
         else:
             self.ipa_blocks = nn.ModuleList([LRIPA(dim=self.d_model,require_pairwise_repr=False) for _ in range(self.num_ipa_blocks)])
 
+        # ablations
+        if cfg["model_params"].get("ablate_ipa_with_mlp", False):
+            self.ipa_blocks = nn.ModuleList([
+                AblationMLP(dim=self.d_model) for _ in range(self.num_ipa_blocks)
+            ])
+            
+            
         self.dropout = nn.Dropout(0.2)
 
         if "marginal" in self.out_type:
@@ -460,13 +468,15 @@ class DynaProt(LightningModule):
         preds = self(batch["aatype"].argmax(dim=-1), batch["frames"], batch["resi_pad_mask"])
         total_loss, loss_dict = self.loss(preds, batch)
 
+        print(loss_dict)
         for dynamics_type, losses in loss_dict.items():
             for loss_name, loss_value in losses.items():
+                print(loss_name, loss_value)
                 log_key = f"val/{dynamics_type}/{loss_name}"
                 loss_all_ranks = self.all_gather(loss_value).mean()
                 if self.trainer.is_global_zero:
                     self.logger.experiment[log_key].append(loss_all_ranks, step=self.global_step * self.grad_accum_batches) 
-                           
+                        
         total_loss_all_ranks = self.all_gather(total_loss.detach()).mean()
         if self.trainer.is_global_zero:                   
             self.logger.experiment["val/total_loss"].append(total_loss_all_ranks, step=self.global_step * self.grad_accum_batches)

@@ -311,3 +311,34 @@ class IPABlock(nn.Module):
 #         x = self.ff_norm(x) if post_norm else x
 #         return x
     
+
+## for ablating SE(3) equivariance only
+
+class GeometryAwareMLPBlock(nn.Module):
+    def __init__(self, dim, hidden_dim=None, dropout=0.1):
+        super().__init__()
+        hidden_dim = hidden_dim or 4 * dim
+
+        self.rot_proj = nn.Linear(9, dim)     # flatten 3x3 rotation matrix
+        self.trans_proj = nn.Linear(3, dim)
+
+        self.mlp = nn.Sequential(
+            nn.LayerNorm(3 * dim),
+            nn.Linear(3 * dim, hidden_dim),
+            nn.ReLU(),
+            nn.Dropout(dropout),
+            nn.Linear(hidden_dim, dim),
+            nn.Dropout(dropout)
+        )
+
+    def forward(self, single_repr, rotations, translations, mask, return_attn=False):
+        B, L, _ = single_repr.shape
+        rot_flat = rotations.reshape(B, L, 9)
+        rot_feat = self.rot_proj(rot_flat)
+        trans_feat = self.trans_proj(translations)
+
+        fused = torch.cat([single_repr, rot_feat, trans_feat], dim=-1)  # (B, L, 3D)
+        out = single_repr + self.mlp(fused)  # residual connection
+
+        dummy_attn = torch.zeros(B, L, L, device=single_repr.device)
+        return out, dummy_attn if return_attn else None

@@ -1,0 +1,62 @@
+# dynaprot_simple.yaml
+
+# Model training and testing settings
+model_params:
+  num_ipa_blocks: 8
+  d_model: 128
+  use_sinusoidal_pos_emb: False
+  marginal_readout_layers: 1
+  ablate_ipa_with_mlp: True
+
+train_params:
+  precision: 32
+  batch_size: 20
+  epochs: 10000
+  learning_rate: 0.0001
+  warmup_steps: 2000
+  total_steps: 20000
+  grad_clip_norm: 1.0
+  accelerator: "gpu"
+  strategy: "ddp"
+  num_devices: [0,1,2,3]
+  num_nodes: 1
+  project: "openprot/dynamics"
+  neptune_api_key: "INSERT YOUR API TOKEN HERE"
+  tags: ["dynaprot", "debugging","dropout"]
+  log_model_checkpoints: True
+
+  out_type: "marginal"
+
+eval_params:    
+  loss_weights:  # hyperparameters for loss functions per dynamics readout, if null/0.0 then loss is not used (0.0 will still log the loss)
+    resi_gaussians:
+      mse_means: null
+      mse_covs: 1.0
+      kldiv: null
+      eigen_penalty: null
+      cond_penalty: null
+      frob_norm: null
+      log_frob_norm: null
+      affine_invariant_dist: null
+      bures_dist: null
+      mse_diag: null
+
+    resi_rmsf:
+      corr_sp: null
+      corr_pcc: null
+
+    resi_correlations:
+      mse: 0.0
+      bures_dist: null
+      log_frob_norm: 0.0
+      
+    resi_rmsd: null
+    resi_rg: null
+
+# Output paths for model artifacts and logs
+
+# checkpoint_path: "/data/cb/mihirb14/projects/dynaprot/.neptune/DYNAMICS-131/DYNAMICS-131/checkpoints/epoch=5934-step=65285.ckpt"
+checkpoint_path: ""
+logs: "/path/to/logs"
+results: "/path/to/results"
+ 

@@ -105,7 +105,7 @@ def sample_ensemble(mean_3n, cov_3n, num_samples=10):
     device = cov_3n.device
     dtype = cov_3n.dtype
     N = cov_3n.shape[0] // 3
-
+    print(mean_3n.shape, cov_3n.shape)
     if mean_3n is None:
         mean_3n = torch.zeros(3 * N, device=device, dtype=dtype)
 

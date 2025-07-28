@@ -60,7 +60,7 @@ class DynaProtLoss(torch.nn.Module):
             )
             
         elif "marginal" in self.cfg["train_params"]["out_type"]:
-            print("predicting regular marginals")
+            # print("predicting regular marginals")
             true_covars = batch["dynamics_covars_local"][mask]
             predicted_covars =  preds["marginal_covars"][mask]
             true_rmsfs = metrics.compute_rmsf_from_covariances(true_covars.detach()).cpu()
@@ -98,17 +98,17 @@ class DynaProtLoss(torch.nn.Module):
                 mse=metrics.mse_ragged(predicted_corrs, true_corrs) if loss_weights["resi_correlations"]["mse"] is not None else None,
                 # bures_dist = metrics.bures_distance_ragged(predicted_corrs, true_corrs) if loss_weights["resi_correlations"]["bures_dist"] is not None else None,
             )
-        
-
+ 
         # Sum weighted losses
         total_loss = 0
-        for dynamics_type, dynamics_specific_loss_dict in loss_dict.items():
-            for loss_name, loss in dynamics_specific_loss_dict.items():
-                if loss is None:
-                    continue
-                else:
-                    weight = loss_weights[dynamics_type][loss_name]
-                    total_loss += weight * loss
-                    dynamics_specific_loss_dict[loss_name] = loss.detach() if isinstance(loss, torch.Tensor) else loss
+        for dynamics_type in list(loss_dict):
+            subdict = loss_dict[dynamics_type]
+            subdict = {k: v for k, v in subdict.items() if v is not None}
+            loss_dict[dynamics_type] = subdict
+
+            for loss_name, loss in subdict.items():
+                weight = loss_weights[dynamics_type][loss_name]
+                total_loss += weight * loss
+                subdict[loss_name] = loss.detach() if isinstance(loss, torch.Tensor) else loss
 
         return total_loss, loss_dict
