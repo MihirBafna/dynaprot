@@ -1,10 +1,30 @@
 ### Reviewer 1 (JQtJ)
 
-#### Utility of the predictions 
+#### Utility of the predictions
 
-#### Motivation for anisotropic descriptors
+1. WRT to ensemble generators
 
-#### Further insights about use cases
+2. WRT RMSF predictors
+
+
+
+The utility of our method is precisely that of normal mode analysis... 
+
+list papers using NMA for biological discovery.
+
+As you mention, enzymatic breathing motion is one of the most prominent examples of a downstream readout commonly extracted from NMA.
+
+The bar for utility is **not** to significantly outperform the ensemble generators, but to approach or match them with the speed of normal mode analysis.
+
+Six orders of mangnitude improvement
+
+To our knowledge, we are the first work to attempt this kind of framing - normal modes are far more useful than scalar RMSF predictions.
+
+As an example we provide a cryptic pocket and BPTI case study below.
+
+#### Insights about use cases
+
+
 
 #### Ablations 
 
@@ -13,11 +33,14 @@
 
 #### Additional baseline methods
 
+Bash the sequence only methods
 
 #### Experiments on BPTI
 
-
 #### Relation to AlphaFlow
+
+The emphasis of our work is to, given an input structure, provide a fast but accurate way of previewing its structural dynamics. AlphaFlow and other ensemble generators aim to provide a comprehensive view. The latter approach is higher-fidelity but much slower in practice. For the same reason that NMA analysis continued to be useful despite classical ensemble generation approaches like MD, we think DynaProt will complement AlphaFlow...
+
 
 #### Other questions
 
@@ -35,12 +58,21 @@
 
 > How it capture higher-order or multi-residue couplings? Are there approximation errors from heuristic reconstruction?
 
+Our coupling is better than NMA.
+
+We get transient contacts better than BioEmu. This solely arises from the prediction of couplings (since marginal Gaussians)
+
 > how would the author extend the model to incorporate side-chain dynamics?
 
 #### Q2: model details
 
 
 #### Q3: Further baselines
+
+>“DynaProt typically outperforms these sequence-only method versions,…”
+
+
+
 
 #### Q4: ablations
 
@@ -53,8 +85,6 @@
 
 
 ### Comparisons against sequence-input methods
-
-[BioEmu results from Boltz...]
 
 > ii) explicitly predict covariances.
 
