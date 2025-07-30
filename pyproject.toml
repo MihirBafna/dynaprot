@@ -11,6 +11,7 @@ dependencies = [
     "einops>=0.8.1",
     "gpustat>=1.1.1",
     "ipykernel>=6.30.0",
+    "matplotlib>=3.10.3",
     "mdtraj>=1.11.0",
     "ml-collections>=1.1.0",
     "modelcif>=1.4",
