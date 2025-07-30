@@ -179,7 +179,7 @@ We apologize for this confusion, the AFMD+Templates metrics are listed in Table 
 
 4. In Figure 1, what are the axes measuring? (Numerical units, interpretation of values)
 
-Thank you for pointing this out. Figure 1 is intended as a conceptual illustration rather than a quantitative plot to motivate the landscape of current dynamics prediction methods. While DynaProt may output less detailed information than full-blown molecular dynamics simulations, we show that its readouts (marginal/joint Gaussians and ensemble approximations) are still highly useful due to its extreme speed. To clarify: the vertical axis represents the richness or density of dynamics information the method provides, and the horizontal axis represents relative inference speed. 
+Thank you for pointing this out. Figure 1 is intended as a conceptual illustration rather than a quantitative plot to motivate the landscape of current dynamics prediction methods. While DynaProt may output less detailed information than full-blown molecular dynamics simulations, we show that its readouts (marginal/joint Gaussians and ensemble approximations) are still highly useful due to its extreme speed. To clarify: the vertical axis represents the richness or density of dynamics information the method provides, and the horizontal axis represents how fast each method is relative to another. 
 
 ### Reviewer 3 (J7z4)
 
