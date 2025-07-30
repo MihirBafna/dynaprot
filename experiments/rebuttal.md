@@ -88,7 +88,7 @@ First, while some of the numerical improvements may seem small at first glance, 
     Finally, we believe DynaProt's readouts could enable dynamics-conditioned design. For instance, users could specify the anisotropic marginals of regions that should remain rigid or flexible (and with directionality)—e.g., stabilizing a loop or introducing breathing motion near a pocket. Models like ProtComposer (CITE HERE), which condition on geometric ellipsoids to guide secondary structure, could instead condition on DynaProt’s Gaussian ellipsoids to design proteins that exhibit desired dynamic behaviors. The pairwise coupling readouts could also be used to design proteins with coupled movements. We plan to add these ideas in the discussion as future work.
 
 
-#### Point by point response
+#### Point by point responses
 - _Overall, the accuracy improvements seem marginal. It is difficult to assess how relevant small improvements are as the paper does little to illustrate the utility of the predictions for useful scientific tasks. Why are these marginal accuracy improvements important? Please see more in the questions section._
 
 We hope the above sections clarified these concerns about the "marginal improvements" and the utility of the DynaProt predictions.
@@ -118,35 +118,79 @@ Due to time constraints, we were unable to retrain DynaProt on datasets that inc
 We hypothesize DynaProt works best on structured proteins like enzymes where local fluctuations and residue couplings capture meaningful dynamics (see new BPTI experiment). It might struggle on fully disordered regions or massive unfolding events, since it's not trained to model that kind of large-scale changes. We will add this as note in the discussion.
 
 ### Reviewer 2 (xnsm)
-1. Clarity / Experiments:
-    - The comparison baseline is relatively limited. While the authors dismiss sequence-only methods as “unfair,” such comparisons (e.g., with ESMDiff or sPROF) would nonetheless contextualize the value of structural input. Even partial evaluations could be informative.
 
-    - Experiments could be performed on more datasets, including STRUCTURAL DYNAMICS OF BPTI, intrinsically disordered proteins.
+#### Point by point responses
 
-    - Table 4 lacks visual clarity (e.g., no bolded best-performing numbers). Table 3’s “single rep” column is not clearly explained.
+1. _Clarity / Experiments:_
+- _The comparison baseline is relatively limited. While the authors dismiss sequence-only methods as “unfair,” such comparisons (e.g., with ESMDiff or sPROF) would nonetheless contextualize the value of structural input. Even partial evaluations could be informative._
 
-2. Originality / Quality: The method requires a known input structure and does not support conditional or sequence-based generation. While this design enables efficiency, the authors should clarify how it compares or complements recent ensemble-generation models like AlphaFlow.
+We apologize for not including comparisons to sequence-only methods like ESMDiff and BioEmu in the original submission. We’ve now added these results, and as shown in the updated tables, DynaProt outperforms these methods on nearly all ensemble generation metrics on the Atlas test set (following the evaluation protocol from Jing et al., 2024). We feel that now that structure prediction from sequence is quite reliable with tools like AlphaFold3, the value of structure-based methods like DynaProt is even more clear — one can first predict the structure of their sequence, and then directly input it into DynaProt for fast dynamics predictions.
 
-3. Significance: While results outperform NMA, the performance gap with AFMD remains. It’s unclear whether DYNAPROT can fully match distributional realism or functional flexibility prediction.
+- _Experiments could be performed on more datasets, including STRUCTURAL DYNAMICS OF BPTI, intrinsically disordered proteins._
+
+Thank you for the suggestion! We have added a new zero-shot conformation generation experiment applying DynaProt to the structural dynamics of BPTI (Shaw et al., 2010), which is known to undergo larger-scale motions than those seen in the ATLAS dataset. Using the evaluation metrics from Jing et al. (2024), we compare the DynaProt-generated ensemble to the full ground truth MD trajectory. As shown in the newly added Table 2, DynaProt performs remarkably well: it achieves high local dynamics accuracy with an RMSF Pearson correlation of 0.88, local anisotropy with RMWD of 0.52, and strong agreement across other metrics such as pairwise RMSD (1.36 Å), W2 distance on PCA projections, and contact-based Jensen-Shannon divergence. These metrics emphasize that DynaProt is able to model both the local flexibility and global ensemble structure with high fidelity. We again thank the reviewer for the suggestion, as this points to DynaProt's ability to generalize to proteins with larger scale dynamics. This experiment will be included as an additional experiment and figure in the main text before the camera ready deadline.
+
+
+**Table 2**:  **DynaProt** zero-shot ensemble generation on Structural Dynamics of BPTI (Shaw et al (2010)). Evaluation metric protocol from Jing et al (2024).
+| Metric                           | **DynaProt (BPTI)** |
+|----------------------------------|---------------------|
+| Pairwise RMSD (=1.57)            | 1.36                |
+| RMSF (=0.84)                     | 0.86                |
+| Global RMSF r (↑)                | 0.88                |
+| Per-target RMSF r (↑)            | 0.88                |
+| Root mean W2-dist Var Contrib (↓)| 0.52                |
+| MD PCA W2 (↓)                    | 0.49                |
+| Joint PCA W2 (↓)                 | 0.81                |
+| Weak contacts J (↑)                 |  0.54               |
+Transient contacts J(↑)               | 0.54                |
+| # Parameters (↓)                 | 2.86M               |
+| Ensemble sampling time (↓)       | ~0.05s              |
+
+More to the reviewer's point (as well as other reviewers) about DynaProt's generalizability, we find that the marginal anisotropic predictions can help reveal cryptic pockets—transient openings on the protein surface that allow ligands to bind (CITE PocketMiner). These cryptic pockets are often the key to making target proteins druggable. We applied DynaProt to zero-shot predict the marginal dynamics of the apo form of ADENYLOSUCCINATE SYNTHETASE (PDB ID: 1ade), a protein featured in the PocketMiner paper’s curated set of cryptic pocket examples. When comparing the predicted anisotropic gaussian blobs overlaid with the holo form (1cib), the predicted Gaussian blobs on the residues involved in the pocket remarkably pointed toward the direction of the holo form protein suggesting that it was indeed capturing the cryptic pocket formation. We really wanted to include this as a figure with the Gaussian blobs overlaid, however NeurIPS 2025’s new rules prevent us from attaching new figures/plots. We plan to include it in the final version or supplementary material, as it’s an exciting use case of DynaProt in action: how dynamic readouts could help uncover druggable motions of enzymes with zero additional supervision.
+
+
+- _Table 4 lacks visual clarity (e.g., no bolded best-performing numbers). Table 3’s “single rep” column is not clearly explained._
+
+We apologize for the lack of visual clarity in Table 4 — we will bold the best-performing numbers in the camera-ready version of the paper. Unfortunately, formatting edits are not permitted during the rebuttal stage. Additionally, regarding the comment about the “single rep” column in Table 3, we believe this may be a misunderstanding, as there is no such column in that table. If the reviewer is referring instead to Figure 3, we clarify that the “single representation” refers to the per-residue sequence embedding vector  that is updated through the IPA layers — terminology inherited from AlphaFold2. Apologies if we have misunderstood.
+
+2. _Originality / Quality: The method requires a known input structure and does not support conditional or sequence-based generation. While this design enables efficiency, the authors should clarify how it compares or complements recent ensemble-generation models like AlphaFlow._
+
+Thank you for the comment — we will make sure to clarify this in the manuscript. Broadly, methods like AlphaFlow, BioEmu, and ESMDiff are designed for ensemble generation directly from sequence. AlphaFlowMD+Templates is a variant of AlphaFlow that additionally conditions on structure, using it as a template. DynaProt is most comparable to AlphaFlow-MD+Templates, as it also takes a known input structure (assumed as mean conformation). From this structure, DynaProt predicts: (1) per-residue anisotropic marginal covariances (which can be used to visualize residue fluctuations and compute RMSF), (2) pairwise residue couplings, which capture correlated motions across the protein, and (3) ensemble samples by combining (1) and (2) to form a full joint Gaussian over the structure. To this end, we find that due to the recent strides in structure prediction (e.g., AlphaFold3), structure-based models like DynaProt are becoming increasingly necessary. Researchers can now go from sequence → structure with AF3, and then immediately apply DynaProt for fast and detailed dynamics prediction.
+
+We also note that DynaProt is, to our knowledge, the only method that models dynamics through a Gaussian lens (apart from NMA). This not only highlights the novelty of the approach, but also enables extremely efficient sampling and direct readouts of structural dynamics, such as anisotropic residue fluctuations and correlated motions, which are not readily available in existing methods.
+
+3. _Significance: While results outperform NMA, the performance gap with AFMD remains. It’s unclear whether DYNAPROT can fully match distributional realism or functional flexibility prediction._
+
+Insert narrative about DynaProt utility and contribution here
 
 Questions:
 
 1. Could you evaluate DYNAPROT on additional datasets, such as BPTI structural dynamics and IDPs? Could you also include sequence-only baselines (e.g., ESMDiff) for reference?
 
+Thank you for this comment, we have added both zero shot conformation generation experiments on BPTI, and sequence only baselines (ESMDiff, BioEMU) in the new tables 2 and 3 above.
+
 2. Could you provide a full parameter breakdown of your model and baselines? A summary table would help quantify DYNAPROT’s efficiency claims.
+
+TODO
 
 3. Why were AFMD or AlphaFlow methods not evaluated under residue-level flexibility metrics (e.g., RMSF)? Are their ensembles unavailable?
 
+We apologize for this confusion, the AFMD+Templates metrics are listed in Table 4 (as they are readouts from the ensembles). In the final manuscript, we are happy to list it in Table 2 in the main text as well.
+
 4. In Figure 1, what are the axes measuring? (Numerical units, interpretation of values)
 
+Thank you for pointing this out. Figure 1 is intended as a conceptual illustration rather than a quantitative plot to motivate the landscape of current dynamics prediction methods. While DynaProt may output less detailed information than full-blown molecular dynamics simulations, we show that its readouts (marginal/joint Gaussians and ensemble approximations) are still highly useful due to its extreme speed. To clarify: the vertical axis represents the richness or density of dynamics information the method provides, and the horizontal axis represents relative inference speed. 
+
 ### Reviewer 3 (J7z4)
+
+#### Point by point responses
 
 Weaknesses:
 
 1. The hierarchical Gaussian parameterization limits the model’s scope and applicability, focusing mainly on local, low-order, and less cooperative motions. See Q1 for general concerns.
 2. While the manuscript is clearly presented, it lacks sufficient explanation on the intended use cases where the Gaussian approach would excel. Several important model details are also missing (see Q2).
 3. Additional clarifications are needed regarding the benchmark choice and evaluation metrics (see Q3). Some supporting ablation studies are necessary to validate design decisions (see Q4).
-Current performance seems limited on benchmark datasets and weak on ensemble generation (see Q3).
+4. Current performance seems limited on benchmark datasets and weak on ensemble generation (see Q3).
 
 Questions:
 1. Overall concerns:
